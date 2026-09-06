@@ -1,0 +1,11 @@
+askdata:
+  target: dev
+  outputs:
+    dev:
+      type: mysql
+      server: 127.0.0.1
+      port: 3306
+      username: askdata
+      password: AskDataLocal2026
+      schema: askdata
+      threads: 1

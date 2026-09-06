@@ -1,0 +1,70 @@
+version: 2
+
+models:
+  - name: fct_orders
+    description: Orders fact table.
+    columns:
+      - name: id
+        data_type: bigint
+        description: Order ID.
+      - name: order_date
+        data_type: date
+        description: Order date.
+      - name: customer_id
+        data_type: bigint
+        description: Customer ID.
+      - name: region
+        data_type: varchar
+        description: Sales region.
+      - name: amount
+        data_type: decimal
+        description: Order amount.
+
+semantic_models:
+  - name: orders
+    model: ref('fct_orders')
+    description: Orders semantic model.
+
+    entities:
+      - name: order_id
+        type: primary
+        expr: id
+
+    dimensions:
+      - name: region
+        type: categorical
+        expr: region
+
+    measures:
+      - name: gmv
+        agg: sum
+        expr: amount
+        description: Gross merchandise value.
+      - name: refunded_orders
+        agg: count
+        expr: id
+        description: Refunded order count.
+      - name: paid_orders
+        agg: count
+        expr: id
+        description: Paid order count.
+
+metrics:
+  - name: gmv
+    description: Gross merchandise value.
+    type: simple
+    type_params:
+      measure: gmv
+
+  - name: refund_rate
+    description: Refund order count / paid order count.
+    type: ratio
+    type_params:
+      numerator: refunded_orders
+      denominator: paid_orders
+
+  - name: aov
+    description: Average order value.
+    type: simple
+    type_params:
+      measure: gmv

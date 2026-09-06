@@ -2,10 +2,7 @@ askdata:
   target: dev
   outputs:
     dev:
-      type: mysql
-      server: 127.0.0.1
-      port: 3306
-      username: askdata
-      password: AskDataLocal2026
+      type: duckdb
+      path: ../data/askdata.duckdb
       schema: askdata
       threads: 1

@@ -13,3 +13,10 @@ data/sessions/*.json
 __pycache__/
 .venv/
 *.pyc
+dbt-project/target/*
+!dbt-project/target/.gitkeep
+dbt-project/logs/
+dbt-project/.user.yml
+*.duckdb
+.docker/
+AppData/

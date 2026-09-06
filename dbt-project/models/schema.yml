@@ -21,6 +21,21 @@ models:
         description: Order amount.
 
 semantic_models:
+  - name: metricflow_time_spine
+    model: ref('metricflow_time_spine')
+    description: Daily time spine.
+
+    entities:
+      - name: metric_time_spine_id
+        type: primary
+        expr: date_day
+
+    dimensions:
+      - name: metric_time_spine
+        type: time
+        type_params:
+          time_granularity: day
+
   - name: orders
     model: ref('fct_orders')
     description: Orders semantic model.
@@ -34,36 +49,61 @@ semantic_models:
       - name: region
         type: categorical
         expr: region
+      - name: order_date
+        type: time
+        expr: order_date
+        type_params:
+          time_granularity: day
 
     measures:
       - name: gmv
         agg: sum
         expr: amount
+        agg_time_dimension: order_date
         description: Gross merchandise value.
       - name: refunded_orders
         agg: count
         expr: id
+        agg_time_dimension: order_date
         description: Refunded order count.
       - name: paid_orders
         agg: count
         expr: id
+        agg_time_dimension: order_date
         description: Paid order count.
 
 metrics:
+  - name: refunded_orders
+    label: Refunded Orders
+    description: Refunded order count.
+    type: simple
+    type_params:
+      measure: refunded_orders
+
+  - name: paid_orders
+    label: Paid Orders
+    description: Paid order count.
+    type: simple
+    type_params:
+      measure: paid_orders
+
   - name: gmv
+    label: GMV
     description: Gross merchandise value.
     type: simple
     type_params:
       measure: gmv
 
   - name: refund_rate
-    description: Refund order count / paid order count.
+    label: Refund Rate
+    description: 退款订单数 / 支付订单数
     type: ratio
     type_params:
       numerator: refunded_orders
       denominator: paid_orders
 
   - name: aov
+    label: AOV
     description: Average order value.
     type: simple
     type_params:

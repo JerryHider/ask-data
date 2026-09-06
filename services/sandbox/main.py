@@ -4,6 +4,7 @@ import hashlib
 import os
 import re
 import time
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
@@ -19,9 +20,10 @@ app = FastAPI(title="AskData SQL sandbox")
 
 DEFAULT_DATASOURCE_URL = os.environ.get(
     "DATASOURCE_MYSQL_URL",
-    "mysql://askdata:AskDataLocal2026@127.0.0.1:3306/askdata",
+    "",
 )
-AUDIT_DATABASE = "sqlite:///./data/audit.db"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+AUDIT_DATABASE = f"sqlite:///{PROJECT_ROOT / 'data' / 'audit.db'}"
 
 ROLE_RULES: dict[str, dict[str, Any]] = {
     "admin": {
@@ -30,7 +32,8 @@ ROLE_RULES: dict[str, dict[str, Any]] = {
         "rows": None,
     },
     "analyst": {
-        "tables": {"fct_orders", "dim_customers"},
+        "tables": {"fct_*", "dim_*"},
+        "denied_tables": {"fct_salary"},
         "columns": {"fct_orders": {"phone"}},
         "rows": None,
     },
@@ -75,6 +78,19 @@ def table_name(table: Any) -> str:
     if hasattr(table, "name"):
         return table.name
     return str(table)
+
+
+def is_table_allowed(table: str, rules: dict[str, Any]) -> bool:
+    allowed_tables = rules.get("tables")
+    if allowed_tables is None:
+        return True
+    if table in allowed_tables:
+        return True
+    return any(
+        fnmatch(table, pattern)
+        for pattern in allowed_tables
+        if any(character in pattern for character in "*?")
+    )
 
 
 def extract_tables(expression: sqlglot.Expression) -> set[str]:
@@ -224,7 +240,11 @@ def execute(request: ExecuteRequest) -> dict[str, Any]:
 
         tables = extract_tables(expression)
         allowed_tables = rules.get("tables")
-        if allowed_tables is not None and not tables.issubset(allowed_tables):
+        denied_tables = rules.get("denied_tables") or set()
+        if any(
+            table in denied_tables or not is_table_allowed(table, rules)
+            for table in tables
+        ):
             raise PermissionError(f"Tables not allowed: {sorted(tables - allowed_tables)}")
 
         columns = extract_columns(expression)

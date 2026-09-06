@@ -10,9 +10,11 @@ data/registry.db
 data/audit.db
 data/auth.db
 data/sessions/*.json
+agent-server/data/
 __pycache__/
 .venv/
 *.pyc
+*.tsbuildinfo
 dbt-project/target/*
 !dbt-project/target/.gitkeep
 dbt-project/logs/

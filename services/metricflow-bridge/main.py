@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -13,8 +14,16 @@ from pydantic import BaseModel, Field
 
 DBT_PROJECT = Path(__file__).resolve().parents[2] / "dbt-project"
 SEMANTIC_MANIFEST_PATH = DBT_PROJECT / "target" / "semantic_manifest.json"
-MF_EXECUTABLE = Path(sys.executable).with_name("mf.exe")
-DBT_EXECUTABLE = Path(sys.executable).with_name("dbt.exe")
+def executable_for(name: str) -> str | None:
+    for suffix in ("", ".exe"):
+        candidate = Path(sys.executable).with_name(f"{name}{suffix}")
+        if candidate.exists():
+            return str(candidate)
+    return shutil.which(name)
+
+
+MF_EXECUTABLE = executable_for("mf")
+DBT_EXECUTABLE = executable_for("dbt")
 
 app = FastAPI(title="AskData MetricFlow bridge")
 
@@ -51,7 +60,7 @@ def run_command(arguments: list[str]) -> str:
     environment = os.environ.copy()
     environment["PYTHONIOENCODING"] = "utf-8"
     result = subprocess.run(
-        [str(MF_EXECUTABLE), *arguments],
+        [MF_EXECUTABLE or "mf", *arguments],
         cwd=DBT_PROJECT,
         capture_output=True,
         text=True,

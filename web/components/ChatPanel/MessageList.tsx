@@ -20,10 +20,15 @@ export default function MessageList() {
             <div className="max-w-2xl rounded-lg bg-blue-100 px-4 py-3 text-sm">{message.text}</div>
           ) : message.role === 'clarify' ? (
             <ClarifyCard question={message.text} options={message.options ?? []} />
+          ) : message.role === 'tool' ? (
+            <ToolCallCard
+              name={message.toolName ?? ''}
+              input={message.toolInput ?? {}}
+              output={message.toolOutput}
+            />
           ) : (
             <article className="prose prose-slate max-w-3xl rounded-lg bg-slate-50 px-4 py-3 text-sm">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
-              <ToolCallCard name="render_table" input={{}} />
             </article>
           )}
         </div>

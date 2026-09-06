@@ -775,7 +775,7 @@ web/components/Skills/SkillEditorModal.tsx
 4. 侧栏任务切换后对话区加载历史
 5. 活动栏 5 项切换仅改变模块面板，对话区不受影响
 6. 页面无图表库引用；模态框 900px 高度无双滚动条
-7. 完成状态：[ ]
+7. 完成状态：[DONE]
 
 ================================================================================
 第 12 章  agent-server 服务化封装
@@ -823,7 +823,7 @@ pi-agent createAgentSession 封装为 Express HTTP 服务，
 1. curl POST /api/session 返回 sessionId
 2. curl POST /api/message 收到 SSE（≥1 message + 1 done 事件）
 3. 重启 agent-server 后 /api/sessions 仍列出历史
-4. 完成状态：[ ]
+4. 完成状态：[DONE]
 
 ================================================================================
 第 13 章  M12【语义模型管理】

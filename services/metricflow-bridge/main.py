@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -25,6 +26,19 @@ def executable_for(name: str) -> str | None:
 MF_EXECUTABLE = executable_for("mf")
 DBT_EXECUTABLE = executable_for("dbt")
 
+
+def normalize_mysql_sql(sql: str) -> str:
+    select_index = sql.upper().find("SELECT")
+    if select_index < 0:
+        return sql
+    sql = sql[select_index:]
+    sql = re.sub(
+        r'\s*"askdata"\s*\.\s*"askdata"\s*\.\s*"([^"]+)"',
+        r" askdata.`\1`",
+        sql,
+    )
+    return sql.replace('"', '`')
+
 app = FastAPI(title="AskData MetricFlow bridge")
 
 
@@ -44,6 +58,8 @@ class CompileRequest(BaseModel):
     group_by: list[str] = Field(default_factory=list)
     where: str | None = None
     limit: int = Field(default=100, ge=1, le=1000)
+    start_time: str | None = None
+    end_time: str | None = None
 
 
 @app.exception_handler(MetricFlowError)
@@ -214,9 +230,13 @@ def compile_sql(request: CompileRequest) -> dict[str, Any]:
         arguments.extend(["--group-by", ",".join(qualified)])
     if request.where:
         arguments.extend(["--where", request.where])
+    if request.start_time:
+        arguments.extend(["--start-time", request.start_time])
+    if request.end_time:
+        arguments.extend(["--end-time", request.end_time])
     arguments.extend(["--limit", str(request.limit)])
-    sql = run_command(arguments)
-    return {"sql": sql, "dialect": "duckdb"}
+    sql = normalize_mysql_sql(run_command(arguments))
+    return {"sql": sql, "dialect": "mysql"}
 
 
 @app.post("/explain_metric")

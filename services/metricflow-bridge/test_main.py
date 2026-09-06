@@ -6,10 +6,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from main import CompileRequest, MetricRequest, compile_sql, dimensions_for_metric, explain_metric, load_semantic_manifest
+from main import CompileRequest, MetricRequest, compile_sql, dimensions_for_metric, explain_metric, load_semantic_manifest, normalize_mysql_sql
 
 
 class MetricFlowBridgeTests(unittest.TestCase):
+    def test_normalize_mysql_sql(self) -> None:
+        source = "Upgrade warning\nSELECT SUM(amount) AS gmv FROM \"askdata\".\"askdata\".\"fct_orders\""
+        self.assertEqual(
+            normalize_mysql_sql(source),
+            "SELECT SUM(amount) AS gmv FROM askdata.`fct_orders`",
+        )
+
     def test_list_metrics_source(self) -> None:
         semantic_manifest = load_semantic_manifest()
         names = {metric["name"] for metric in semantic_manifest["metrics"]}

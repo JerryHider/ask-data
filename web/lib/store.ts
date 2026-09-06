@@ -3,7 +3,7 @@
 import { create } from 'zustand';
 
 export type ModuleKey = 'tasks' | 'semantic' | 'ingest' | 'settings' | 'skills';
-export type ChatRole = 'user' | 'assistant' | 'clarify';
+export type ChatRole = 'user' | 'assistant' | 'clarify' | 'tool';
 
 export interface QueryResult {
   columns: string[];
@@ -18,6 +18,9 @@ export interface ChatMessage {
   role: ChatRole;
   text: string;
   options?: string[];
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  toolOutput?: Record<string, unknown>;
 }
 
 export interface SessionSummary {
@@ -128,9 +131,32 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
             ],
           });
         } else if (event === 'tool_call') {
-          set({ logs: [...get().logs, `tool_call: ${String(payload.name)}`] });
+          set({
+            logs: [...get().logs, `tool_call: ${String(payload.name)}`],
+            messages: [
+              ...get().messages,
+              {
+                id: createId(),
+                role: 'tool',
+                text: '',
+                toolName: String(payload.name ?? ''),
+                toolInput: (payload.input ?? {}) as Record<string, unknown>,
+              },
+            ],
+          });
         } else if (event === 'tool_result') {
           set({ logs: [...get().logs, `tool_result: ${String(payload.name)}`] });
+          const messages = [...get().messages];
+          for (let index = messages.length - 1; index >= 0; index -= 1) {
+            if (messages[index].toolName === payload.name && !messages[index].toolOutput) {
+              messages[index] = {
+                ...messages[index],
+                toolOutput: (payload.output ?? {}) as Record<string, unknown>,
+              };
+              break;
+            }
+          }
+          set({ messages });
         } else if (event === 'table_result') {
           set({
             tableResult: payload as { title: string; queryResult: QueryResult },

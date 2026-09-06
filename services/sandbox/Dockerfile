@@ -9,4 +9,4 @@ RUN uv sync --frozen --no-dev
 
 COPY services/sandbox .
 
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8003"]
+CMD [".venv/bin/uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8003"]

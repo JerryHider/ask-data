@@ -2,7 +2,17 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import express, { type Response } from 'express';
+import Type from 'typebox';
+import {
+  fauxAssistantMessage,
+  fauxProvider,
+  fauxToolCall,
+  createModels,
+} from '@earendil-works/pi-ai';
+import { Agent, type AgentTool } from '@earendil-works/pi-agent-core';
 import { renderMarkdownTable } from '../extensions/table-render/index.js';
+import { routingPrompt } from '../extensions/dual-router/prompts.js';
+import { parseDateRange } from './date-range.js';
 
 const app = express();
 const port = Number(process.env.AGENT_SERVER_PORT ?? 3000);
@@ -37,6 +47,21 @@ interface QueryResult {
   rowCount: number;
   durationMs: number;
   sql: string;
+}
+
+interface CompileOptions {
+  metrics: string[];
+  group_by?: string[];
+  where?: string;
+  limit: number;
+  start_time?: string;
+  end_time?: string;
+}
+
+interface QueryMetricParameters {
+  metric: string;
+  startTime?: string;
+  endTime?: string;
 }
 
 function now(): string {
@@ -127,14 +152,23 @@ async function searchSchema(message: string): Promise<string> {
 async function queryMetric(
   response: Response,
   metric: string,
-  user: string
+  user: string,
+  dateRange: { startTime?: string; endTime?: string }
 ): Promise<QueryResult | null> {
-  sendEvent(response, 'tool_call', { name: 'query_metric', input: { metric } });
+  sendEvent(response, 'tool_call', {
+    name: 'query_metric',
+    input: { metric, ...dateRange },
+  });
   try {
-    const compiled = await postJson<
-      { metrics: string[]; group_by?: string[]; limit: number },
-      { sql: string }
-    >(`${metricFlowUrl}/compile_sql`, { metrics: [metric], limit: 100 });
+    const compiled = await postJson<CompileOptions, { sql: string }>(
+      `${metricFlowUrl}/compile_sql`,
+      {
+        metrics: [metric],
+        limit: 100,
+        start_time: dateRange.startTime,
+        end_time: dateRange.endTime,
+      }
+    );
     const result = await postJson<
       { sql: string; datasource: string; user: string },
       QueryResult
@@ -154,12 +188,137 @@ async function queryMetric(
   }
 }
 
+async function runAgentFlow(
+  response: Response,
+  message: string,
+  user: string
+): Promise<SessionMessage> {
+  const metric = extractMetric(message);
+  if (!metric) {
+    return runAskFlow(response, message, user);
+  }
+
+  const dateRange = parseDateRange(message);
+  const models = createModels();
+  const faux = fauxProvider();
+  models.setProvider(faux.provider);
+  const model = faux.getModel();
+
+  const queryMetricSchema = Type.Object({
+    metric: Type.String(),
+    startTime: Type.Optional(Type.String()),
+    endTime: Type.Optional(Type.String()),
+  });
+
+  const tool: AgentTool<typeof queryMetricSchema, QueryResult> = {
+    name: 'query_metric',
+    label: 'Query metric',
+    description: 'Query a standard dbt metric.',
+    parameters: queryMetricSchema,
+    execute: async (_toolCallId, params) => {
+      const compiled = await postJson<CompileOptions, { sql: string }>(
+        `${metricFlowUrl}/compile_sql`,
+        {
+          metrics: [params.metric],
+          limit: 100,
+          start_time: params.startTime,
+          end_time: params.endTime,
+        }
+      );
+      const result = await postJson<
+        { sql: string; datasource: string; user: string },
+        QueryResult
+      >(`${sandboxUrl}/execute`, {
+        sql: compiled.sql,
+        datasource: 'mysql',
+        user,
+      });
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+        details: result,
+      };
+    },
+  };
+
+  let finalText = '';
+  faux.setResponses([
+    () =>
+      fauxAssistantMessage(
+        [
+          fauxToolCall('query_metric', {
+            metric,
+            ...dateRange,
+          }),
+        ],
+        { stopReason: 'toolUse' }
+      ),
+    () => {
+      finalText = `${renderMarkdownTable(toolResult)}\n\n[来源：dbt 标准指标]`;
+      return fauxAssistantMessage(finalText);
+    },
+  ]);
+
+  let toolResult: QueryResult = {
+    columns: [],
+    rows: [],
+    rowCount: 0,
+    durationMs: 0,
+    sql: '',
+  };
+
+  const agent = new Agent({
+    initialState: {
+      systemPrompt: routingPrompt,
+      model,
+      tools: [tool],
+    },
+    streamFn: models.streamSimple.bind(models),
+  });
+
+  agent.subscribe((event) => {
+    if (event.type === 'tool_execution_start') {
+      sendEvent(response, 'tool_call', {
+        name: event.toolName,
+        input: event.args,
+      });
+    } else if (event.type === 'tool_execution_end') {
+      toolResult = event.result.details;
+      sendEvent(response, 'tool_result', {
+        name: event.toolName,
+        output: event.result.details,
+      });
+      sendEvent(response, 'table_result', {
+        title: metric,
+        queryResult: event.result.details,
+      });
+    } else if (event.type === 'message_end' && event.message.role === 'assistant') {
+      const text = event.message.content
+        .filter((block) => block.type === 'text')
+        .map((block) => block.text)
+        .join('');
+      if (text) sendEvent(response, 'message', { text });
+    } else if (event.type === 'agent_end') {
+      sendEvent(response, 'done', {});
+    }
+  });
+
+  await agent.prompt(message);
+
+  return {
+    id: randomUUID(),
+    role: 'assistant',
+    text: finalText,
+    createdAt: now(),
+  };
+}
+
 async function runAskFlow(
   response: Response,
   message: string,
   user: string
 ): Promise<SessionMessage> {
   const metric = extractMetric(message);
+  const dateRange = parseDateRange(message);
   let result: QueryResult | null = null;
 
   if (!metric) {
@@ -169,7 +328,7 @@ async function runAskFlow(
   }
 
   if (metric) {
-    result = await queryMetric(response, metric, user);
+    result = await queryMetric(response, metric, user, dateRange);
   }
 
   let text: string;
@@ -259,13 +418,11 @@ app.post('/api/message', async (request, response) => {
     createdAt: now(),
   };
   try {
-    const assistantMessage = await runAskFlow(response, body.message, body.user ?? 'admin');
+    const assistantMessage = await runAgentFlow(response, body.message, body.user ?? 'admin');
     session.messages.push(userMessage, assistantMessage);
     if (session.title === '新任务') session.title = userMessage.text.slice(0, 20);
     session.updatedAt = now();
     await writeSession(session);
-    sendEvent(response, 'message', { text: assistantMessage.text });
-    sendEvent(response, 'done', {});
   } catch (error) {
     sendEvent(response, 'message', { text: `执行失败：${(error as Error).message}` });
     sendEvent(response, 'done', {});

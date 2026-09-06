@@ -11,5 +11,5 @@ COPY tsconfig.json ./
 COPY agent-server agent-server
 COPY extensions extensions
 
-WORKDIR /app/agent-server
-CMD ["pnpm", "start"]
+WORKDIR /app
+CMD ["corepack", "pnpm", "--filter", "@askdata/agent-server", "exec", "tsx", "server.ts"]

@@ -10,4 +10,4 @@ RUN uv sync --frozen --no-dev
 COPY services/artifact-parser .
 COPY dbt-project /app/dbt-project
 
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD [".venv/bin/uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]

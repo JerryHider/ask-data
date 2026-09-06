@@ -20,7 +20,7 @@ services:
     volumes:
       - ./data/chroma:/chroma/chroma
     healthcheck:
-      test: [CMD, curl, -f, http://localhost:8000/api/v2/heartbeat]
+      test: [CMD-SHELL, bash -c '</dev/tcp/localhost/8000']
       interval: 10s
       timeout: 5s
       retries: 10
@@ -75,6 +75,7 @@ services:
       context: .
       dockerfile: agent-server/Dockerfile
     environment:
+      AGENT_SERVER_HOST: 0.0.0.0
       ARTIFACT_PARSER_URL: http://artifact-parser:8001
       METRICFLOW_BRIDGE_URL: http://metricflow-bridge:8002
       SQL_SANDBOX_URL: http://sandbox:8003
@@ -100,6 +101,8 @@ services:
       dockerfile: web/Dockerfile
     environment:
       AGENT_SERVER_URL: http://agent-server:3000
+      PORT: 3001
+      HOSTNAME: 0.0.0.0
     ports:
       - 127.0.0.1:3001:3001
     depends_on:

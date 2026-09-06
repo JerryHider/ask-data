@@ -5,9 +5,11 @@ import { useState } from 'react';
 export default function ToolCallCard({
   name,
   input,
+  output,
 }: {
   name: string;
   input: Record<string, unknown>;
+  output?: Record<string, unknown>;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -21,9 +23,18 @@ export default function ToolCallCard({
         <span>{open ? '收起' : '展开'}</span>
       </button>
       {open ? (
-        <pre className="max-h-48 overflow-auto border-t border-slate-200 p-3 text-xs">
-          {JSON.stringify(input, null, 2)}
-        </pre>
+        <div className="grid gap-2 border-t border-slate-200 p-3 text-xs">
+          <div>
+            <p className="mb-1 font-semibold text-slate-500">入参</p>
+            <pre className="max-h-32 overflow-auto rounded bg-slate-50 p-2">{JSON.stringify(input, null, 2)}</pre>
+          </div>
+          {output ? (
+            <div>
+              <p className="mb-1 font-semibold text-slate-500">出参</p>
+              <pre className="max-h-32 overflow-auto rounded bg-slate-50 p-2">{JSON.stringify(output, null, 2)}</pre>
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );

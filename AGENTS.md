@@ -232,7 +232,7 @@ agent-server 调 /api/datasources/refresh 动态注入。
    ReadOnly violation
 3. registry 中 postgresql / clickhouse / starrocks 键存在
    且值为 null
-4. 完成状态：[ ]
+4. 完成状态：[DONE]
 
 ================================================================================
 第 3 章  M3【dbt 工件解析器 + Schema 索引】

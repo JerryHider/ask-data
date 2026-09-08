@@ -1,17 +1,39 @@
 'use client';
 
-const templates = ['事件表', '维度表', '指标汇总表'];
+export interface TemplateField {
+  key: string;
+  label: string;
+  type: 'text' | 'textarea' | 'select' | 'array';
+  required: boolean;
+  options?: string[];
+}
 
-export default function TemplatePicker() {
+export interface SemanticTemplate {
+  id: string;
+  name: string;
+  description: string;
+  fields: TemplateField[];
+}
+
+export default function TemplatePicker({
+  templates,
+  onSelect,
+}: {
+  templates: SemanticTemplate[];
+  onSelect: (template: SemanticTemplate) => void;
+}) {
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className='grid gap-2'>
       {templates.map((template) => (
         <button
-          key={template}
-          type="button"
-          className="rounded border border-slate-300 bg-white px-3 py-2 text-xs"
+          key={template.id}
+          type='button'
+          onClick={() => onSelect(template)}
+          className='rounded border border-slate-300 bg-white p-3 text-left transition hover:border-blue-500 hover:bg-blue-50'
         >
-          {template}
+          <div className='text-sm font-semibold'>{template.name}</div>
+          <div className='mt-1 text-xs text-slate-500'>{template.description}</div>
+          <div className='mt-1 text-[11px] text-slate-400'>{template.fields.length} 个字段</div>
         </button>
       ))}
     </div>

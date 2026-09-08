@@ -12,7 +12,7 @@ interface RegistryConnection {
   password?: string;
 }
 
-const registryUrl = 'http://127.0.0.1:8004/db-connections';
+const registryUrl = process.env.REGISTRY_URL ?? 'http://127.0.0.1:8004';
 
 export class ConnectorRegistry {
   private readonly connectors = new Map<string, BaseConnector | null>();
@@ -40,7 +40,7 @@ export class ConnectorRegistry {
   }
 
   async refreshFromRegistry(): Promise<void> {
-    const response = await fetch(registryUrl);
+    const response = await fetch(`${registryUrl}/db-connections/runtime`, { method: 'POST' });
     if (!response.ok) {
       throw new Error(`Registry refresh failed: ${response.status}`);
     }

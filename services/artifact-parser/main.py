@@ -52,7 +52,7 @@ def get_embedder() -> SentenceTransformer | HashEmbedder:
     global embedder
     if embedder is None:
         try:
-            embedder = SentenceTransformer(MODEL_NAME)
+            embedder = SentenceTransformer(MODEL_NAME, local_files_only=True)
         except OSError:
             embedder = HashEmbedder()
     return embedder

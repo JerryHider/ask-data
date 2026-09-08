@@ -15,4 +15,11 @@ describe('date range parser', () => {
       endTime: '2026-08-31',
     });
   });
+
+  it('parses an explicit quarter', () => {
+    expect(parseDateRange('2026年第二季度退款率')).toEqual({
+      startTime: '2026-04-01',
+      endTime: '2026-06-30',
+    });
+  });
 });

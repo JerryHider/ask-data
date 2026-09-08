@@ -1,0 +1,57 @@
+version: 2
+semantic_models:
+- name: refund_rate_local
+  model: ref('fct_orders')
+  description: Local refund rate
+  entities:
+  - expr: id
+    name: refund_rate_local_order_id
+    type: primary
+  dimensions:
+  - expr: region
+    name: region
+    type: categorical
+  - expr: order_date
+    name: order_date
+    type_params:
+      time_granularity: day
+    type: time
+  measures:
+  - agg_time_dimension: order_date
+    agg: count
+    name: refund_order_count
+    expr: id
+  - agg_time_dimension: order_date
+    agg: count
+    name: order_count
+    expr: id
+  - agg_time_dimension: order_date
+    agg: sum
+    name: amount_total
+    expr: amount
+metrics:
+- name: refund_order_count
+  label: refund_order_count
+  description: Local refund rate
+  type: simple
+  type_params:
+    measure: refund_order_count
+- name: order_count
+  label: order_count
+  description: Local refund rate
+  type: simple
+  type_params:
+    measure: order_count
+- name: amount_total
+  label: amount_total
+  description: Local refund rate
+  type: simple
+  type_params:
+    measure: amount_total
+- name: refund_rate_local_ratio
+  label: refund_rate_local ratio
+  description: Local refund rate
+  type: ratio
+  type_params:
+    numerator: order_count
+    denominator: amount_total

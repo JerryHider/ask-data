@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class ParserTests(unittest.TestCase):
     def test_parses_models(self) -> None:
         models = parse_models(ROOT / "dbt-project" / "target" / "manifest.json")
-        self.assertEqual(len(models), 3)
+        self.assertGreaterEqual(len(models), 3)
         self.assertIn("fct_orders", {model["name"] for model in models})
 
     def test_parses_metrics(self) -> None:

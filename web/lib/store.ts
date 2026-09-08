@@ -40,12 +40,16 @@ interface AskDataState {
   resultOpen: boolean;
   resultTab: 'table' | 'changes' | 'logs';
   logs: string[];
+  skillTestId: string | null;
+  skillTestName: string | null;
   setActiveModule: (module: ModuleKey) => void;
   loadSessions: () => Promise<void>;
   createSession: () => Promise<void>;
   selectSession: (sessionId: string) => Promise<void>;
   sendMessage: (message: string) => Promise<void>;
   setResultTab: (tab: 'table' | 'changes' | 'logs') => void;
+  startSkillTest: (skill: { id: number; name: string }) => Promise<void>;
+  exitSkillTest: () => Promise<void>;
 }
 
 function createId(): string {
@@ -87,6 +91,8 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
   resultOpen: false,
   resultTab: 'table',
   logs: [],
+  skillTestId: null,
+  skillTestName: null,
   setActiveModule: (activeModule) => set({ activeModule }),
   loadSessions: async () => {
     const response = await fetch('/api/sessions');
@@ -94,10 +100,11 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
     set({ sessions: await response.json() });
   },
   createSession: async () => {
+    const skillTestId = get().skillTestId;
     const response = await fetch('/api/session', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify(skillTestId ? { skill_test: skillTestId } : {}),
     });
     if (!response.ok) return;
     const data = (await response.json()) as { sessionId: string };
@@ -183,4 +190,13 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
     }
   },
   setResultTab: (resultTab) => set({ resultTab }),
+  startSkillTest: async (skill) => {
+    set({ skillTestId: String(skill.id), skillTestName: skill.name });
+    await get().createSession();
+    set({ activeModule: 'tasks' });
+  },
+  exitSkillTest: async () => {
+    set({ skillTestId: null, skillTestName: null });
+    await get().createSession();
+  },
 }));

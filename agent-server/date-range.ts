@@ -11,6 +11,18 @@ function formatDate(date: Date): string {
 }
 
 export function parseDateRange(message: string, today = new Date()): DateRange {
+  const quarter = message.match(/(\d{4})\s*[年\-]\s*(?:第\s*)?([1-4一二三四])\s*季度/i);
+  if (quarter) {
+    const year = Number(quarter[1]);
+    const chineseQuarter = '一二三四'.indexOf(quarter[2]);
+    const quarterNumber = chineseQuarter >= 0 ? chineseQuarter + 1 : Number(quarter[2]);
+    const startMonth = (quarterNumber - 1) * 3;
+    return {
+      startTime: formatDate(new Date(year, startMonth, 1)),
+      endTime: formatDate(new Date(year, startMonth + 3, 0)),
+    };
+  }
+
   if (message.includes('上月')) {
     return {
       startTime: formatDate(new Date(today.getFullYear(), today.getMonth() - 1, 1)),

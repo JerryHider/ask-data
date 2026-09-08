@@ -53,16 +53,58 @@ services:
       timeout: 5s
       retries: 10
 
+  registry:
+    build:
+      context: .
+      dockerfile: services/registry/Dockerfile
+    environment:
+      DATASOURCE_MYSQL_URL: mysql://${MYSQL_USER:-askdata}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-askdata}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      METRICFLOW_BRIDGE_URL: http://metricflow-bridge:8002
+      ARTIFACT_PARSER_URL: http://artifact-parser:8001
+    volumes:
+      - ./data:/app/data
+      - ./dbt-project/user_semantic_models:/app/dbt-project/user_semantic_models
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, import urllib.request; urllib.request.urlopen('http://localhost:8004/health')]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  data-ingest:
+    build:
+      context: .
+      dockerfile: services/data-ingest/Dockerfile
+    environment:
+      DATASOURCE_MYSQL_URL: mysql://${MYSQL_USER:-askdata}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-askdata}
+      INGEST_MAX_FILE_MB: ${INGEST_MAX_FILE_MB:-50}
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, import urllib.request; urllib.request.urlopen('http://localhost:8005/health')]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   sandbox:
     build:
       context: .
       dockerfile: services/sandbox/Dockerfile
     environment:
       DATASOURCE_MYSQL_URL: mysql://${MYSQL_USER:-askdata}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-askdata}
+      REGISTRY_URL: http://registry:8004
     volumes:
       - ./data:/app/data
     depends_on:
       mysql:
+        condition: service_healthy
+      registry:
         condition: service_healthy
     healthcheck:
       test: [CMD, python, -c, import urllib.request; urllib.request.urlopen('http://localhost:8003/health')]
@@ -80,6 +122,7 @@ services:
       METRICFLOW_BRIDGE_URL: http://metricflow-bridge:8002
       SQL_SANDBOX_URL: http://sandbox:8003
       REGISTRY_URL: http://registry:8004
+      DATA_INGEST_URL: http://data-ingest:8005
     volumes:
       - ./data/sessions:/app/data/sessions
     depends_on:
@@ -88,6 +131,10 @@ services:
       metricflow-bridge:
         condition: service_healthy
       sandbox:
+        condition: service_healthy
+      registry:
+        condition: service_healthy
+      data-ingest:
         condition: service_healthy
     healthcheck:
       test: [CMD, node, -e, fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))]

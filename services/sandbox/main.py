@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import time
+import urllib.request
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
@@ -15,6 +17,27 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from models import add_audit_event
+
+REGISTRY_URL = os.environ.get('REGISTRY_URL', 'http://registry:8004')
+SANDBOX_DEFAULTS = {
+    'timeout_seconds': 30,
+    'max_rows': 1000,
+    'forbidden_keywords': ['insert', 'update', 'delete', 'drop', 'truncate', 'alter', 'create', 'grant', 'revoke'],
+}
+SANDBOX_SETTINGS_CACHE = {'value': SANDBOX_DEFAULTS, 'loaded_at': 0.0}
+
+
+def get_sandbox_settings() -> dict[str, Any]:
+    if time.monotonic() - SANDBOX_SETTINGS_CACHE['loaded_at'] < 5:
+        return SANDBOX_SETTINGS_CACHE['value']
+    try:
+        with urllib.request.urlopen(REGISTRY_URL + '/settings/sandbox', timeout=2) as response:
+            value = json.loads(response.read().decode('utf-8'))
+        SANDBOX_SETTINGS_CACHE.update({'value': value, 'loaded_at': time.monotonic()})
+        return value
+    except Exception:
+        SANDBOX_SETTINGS_CACHE.update({'value': SANDBOX_DEFAULTS, 'loaded_at': time.monotonic()})
+        return SANDBOX_DEFAULTS
 
 app = FastAPI(title="AskData SQL sandbox")
 
@@ -216,6 +239,7 @@ def perm_rows(user: str) -> str | None:
 @app.post("/execute")
 def execute(request: ExecuteRequest) -> dict[str, Any]:
     started_at = time.monotonic()
+    settings = get_sandbox_settings()
     try:
         expression = sqlglot.parse_one(request.sql, read="mysql")
     except Exception as exc:
@@ -233,6 +257,9 @@ def execute(request: ExecuteRequest) -> dict[str, Any]:
         )
 
     try:
+        for keyword in settings.get('forbidden_keywords', []):
+            if re.search(r'\b' + re.escape(keyword) + r'\b', request.sql, re.IGNORECASE):
+                raise ValueError('Forbidden SQL keyword: ' + keyword)
         validate_sql(expression)
         rules = ROLE_RULES.get(USERS.get(request.user, request.user))
         if rules is None:
@@ -255,12 +282,16 @@ def execute(request: ExecuteRequest) -> dict[str, Any]:
                     f"Columns not allowed: {sorted(columns.intersection(denied_columns))}"
                 )
 
-        expression = append_limit(expression, 1000)
+        expression = append_limit(expression, int(settings.get('max_rows', 1000)))
         expression = inject_row_filter(expression, rules.get("rows"))
         guarded_sql = expression.sql(dialect="mysql")
 
         connection_config = parse_mysql_url(DEFAULT_DATASOURCE_URL)
-        connection = pymysql.connect(**connection_config)
+        connection = pymysql.connect(
+            **connection_config,
+            read_timeout=int(settings.get('timeout_seconds', 30)),
+            write_timeout=int(settings.get('timeout_seconds', 30)),
+        )
         try:
             with connection.cursor(pymysql.cursors.DictCursor) as cursor:
                 cursor.execute(guarded_sql)

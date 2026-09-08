@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useAskDataStore } from '../../lib/store';
+import { buildCsv } from '../../lib/csv';
 
 export default function TableTab() {
   const tableResult = useAskDataStore((state) => state.tableResult);
@@ -33,14 +34,7 @@ export default function TableTab() {
 
   function exportCsv(): void {
     const columns = tableResult?.queryResult.columns ?? [];
-    const csv = [
-      columns.join(','),
-      ...sortedRows.map((row) =>
-        columns
-          .map((column) => `"${String(row[column] ?? '').replace(/"/g, '""')}"`)
-          .join(',')
-      ),
-    ].join('\n');
+    const csv = buildCsv(columns, sortedRows);
     const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);

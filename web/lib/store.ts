@@ -46,6 +46,7 @@ interface AskDataState {
   loadSessions: () => Promise<void>;
   createSession: () => Promise<void>;
   selectSession: (sessionId: string) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<void>;
   sendMessage: (message: string) => Promise<void>;
   setResultTab: (tab: 'table' | 'changes' | 'logs') => void;
   startSkillTest: (skill: { id: number; name: string }) => Promise<void>;
@@ -116,6 +117,21 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
     if (!response.ok) return;
     const messages = (await response.json()) as { id: string; role: ChatRole; text: string }[];
     set({ activeSessionId: sessionId, messages });
+  },
+  deleteSession: async (sessionId) => {
+    if (get().streaming) return;
+    const response = await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+    if (!response.ok) return;
+    if (get().activeSessionId === sessionId) {
+      set({
+        activeSessionId: null,
+        messages: [],
+        tableResult: null,
+        resultOpen: false,
+        logs: [],
+      });
+    }
+    await get().loadSessions();
   },
   sendMessage: async (message) => {
     const { activeSessionId, streaming } = get();

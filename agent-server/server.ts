@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import express, { type Request, type Response } from 'express';
 import Type from 'typebox';
@@ -110,6 +110,13 @@ async function readSession(sessionId: string): Promise<SessionRecord | null> {
 async function writeSession(session: SessionRecord): Promise<void> {
   await ensureSessionsDir();
   await writeFile(sessionPath(session.id), `${JSON.stringify(session, null, 2)}\n`, 'utf8');
+}
+
+async function deleteSession(sessionId: string): Promise<boolean> {
+  const session = await readSession(sessionId);
+  if (!session) return false;
+  await unlink(sessionPath(sessionId));
+  return true;
 }
 
 async function listSessions(): Promise<SessionRecord[]> {
@@ -810,6 +817,24 @@ app.get('/api/sessions/:id/messages', async (request, response) => {
     return;
   }
   response.json(session.messages);
+});
+
+app.delete('/api/sessions/:id', async (request, response) => {
+  const sessionId = request.params.id;
+  if (!/^[a-f0-9-]{36}$/i.test(sessionId)) {
+    response.status(400).json({ message: 'Invalid session id' });
+    return;
+  }
+  try {
+    const deleted = await deleteSession(sessionId);
+    if (!deleted) {
+      response.status(404).json({ message: 'Session not found' });
+      return;
+    }
+    response.status(204).send();
+  } catch (error) {
+    response.status(500).json({ message: (error as Error).message });
+  }
 });
 
 app.post('/api/message', async (request, response) => {

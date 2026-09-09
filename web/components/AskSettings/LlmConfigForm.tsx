@@ -63,6 +63,23 @@ export default function LlmConfigForm() {
     setMessage(result.ok ? `连接成功（${result.latency_ms}ms）` : `连接失败：${result.error}`);
   }
 
+  async function remove(config: LlmConfig) {
+    if (!window.confirm(`确定删除模型配置「${config.name}」吗？`)) return;
+
+    const response = await fetch(`/api/registry/llm-configs/${config.id}`, { method: 'DELETE' });
+    if (!response.ok) {
+      setMessage('删除失败');
+      return;
+    }
+
+    if (editingId === config.id) {
+      setEditingId(null);
+      setForm(emptyForm);
+    }
+    setMessage('配置已删除');
+    await load();
+  }
+
   return (
     <div className='space-y-2'>
       {configs.map((config) => (
@@ -99,6 +116,13 @@ export default function LlmConfigForm() {
               }}
             >
               设为激活
+            </button>
+            <button
+              type='button'
+              className='rounded border border-red-200 px-2 py-1 text-red-600'
+              onClick={() => void remove(config)}
+            >
+              删除
             </button>
           </div>
         </article>

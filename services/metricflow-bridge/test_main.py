@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from main import CompileRequest, MetricRequest, compile_sql, dimensions_for_metric, explain_metric, load_semantic_manifest, normalize_mysql_sql
+from main import CompileRequest, MetricRequest, compile_sql, dimensions_for_metric, explain_metric, load_semantic_manifest, normalize_mysql_sql, qualified_group_by
 
 
 class MetricFlowBridgeTests(unittest.TestCase):
@@ -25,6 +25,13 @@ class MetricFlowBridgeTests(unittest.TestCase):
     def test_dimensions_for_refund_rate(self) -> None:
         semantic_manifest = load_semantic_manifest()
         self.assertIn("region", dimensions_for_metric(semantic_manifest, "refund_rate"))
+
+    def test_qualified_time_group_by_includes_granularity(self) -> None:
+        semantic_manifest = load_semantic_manifest()
+        self.assertEqual(
+            qualified_group_by(semantic_manifest, "gmv", "order_date"),
+            "order_id__order_date__day",
+        )
 
     def test_explain_refund_rate(self) -> None:
         result = explain_metric(MetricRequest(metric="refund_rate"))

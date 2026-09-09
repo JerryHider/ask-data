@@ -1,30 +1,27 @@
 version: 2
-semantic_models:
-- name: tc11_orders
-  model: ref('tc11_orders')
-  description: Auto-drafted semantic model
-  entities:
-  - name: tc11_orders_id
-    type: primary
-    expr: id
-  dimensions:
-  - name: order_date
-    type: time
-    expr: order_date
-    type_params:
-      time_granularity: day
-  - name: region
-    type: categorical
-    expr: region
-  measures:
-  - name: amount
-    agg: sum
-    expr: amount
+
+models:
+  - name: tc11_orders
+    description: Auto-drafted semantic model
+    semantic_model:
+      enabled: true
     agg_time_dimension: order_date
-metrics:
-- name: amount
-  label: amount
-  description: Auto-drafted semantic model
-  type: simple
-  type_params:
-    measure: amount
+    columns:
+      - name: id
+        entity:
+          name: tc11_orders_id
+          type: primary
+      - name: order_date
+        granularity: day
+        dimension:
+          type: time
+      - name: region
+        dimension:
+          type: categorical
+    metrics:
+      - name: amount
+        label: Amount
+        description: Auto-drafted semantic model
+        type: simple
+        agg: sum
+        expr: amount

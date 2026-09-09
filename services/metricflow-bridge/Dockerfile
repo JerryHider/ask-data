@@ -5,7 +5,7 @@ WORKDIR /app/services/metricflow-bridge
 
 RUN pip install --no-cache-dir uv
 COPY services/metricflow-bridge/pyproject.toml services/metricflow-bridge/uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-install-package dbt-core-experimental-parser
 
 COPY services/metricflow-bridge .
 COPY dbt-project /app/dbt-project

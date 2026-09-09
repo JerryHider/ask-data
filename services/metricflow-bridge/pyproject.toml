@@ -4,8 +4,9 @@ version = "0.1.0"
 description = "AskData MetricFlow compilation bridge"
 requires-python = ">=3.11"
 dependencies = [
-    "dbt-duckdb>=1.11.0",
-    "dbt-metricflow==0.13.0",
+    "dbt-core==1.12.3",
+    "dbt-duckdb==1.11.0",
+    "dbt-metricflow==0.14.0",
     "fastapi>=0.141.1",
     "uvicorn>=0.52.4",
 ]

@@ -102,9 +102,9 @@ def load_semantic_manifest() -> dict[str, Any]:
         return json.load(handle)
 
 
-def dimensions_for_metric(
-    semantic_manifest: dict[str, Any], metric_name: str
-) -> list[str]:
+def semantic_models_for_metric(
+    semantic_manifest: dict[str, Any], metric_name: str, visited: set[str] | None = None
+) -> list[dict[str, Any]]:
     metrics = {
         metric.get("name"): metric
         for metric in semantic_manifest.get("metrics", [])
@@ -112,58 +112,64 @@ def dimensions_for_metric(
     metric = metrics.get(metric_name)
     if metric is None:
         return []
+    visited = visited or set()
+    if metric_name in visited:
+        return []
+    visited.add(metric_name)
     type_params = metric.get("type_params") or {}
+    model_names: set[str] = set()
+    aggregation_params = type_params.get("metric_aggregation_params") or {}
+    semantic_model_name = aggregation_params.get("semantic_model")
+    if semantic_model_name:
+        model_names.add(str(semantic_model_name))
+    for reference in (
+        type_params.get("numerator"),
+        type_params.get("denominator"),
+        *type_params.get("metrics", []),
+    ):
+        if isinstance(reference, dict) and reference.get("name"):
+            referenced_name = str(reference["name"])
+            for referenced_model in semantic_models_for_metric(
+                semantic_manifest, referenced_name, visited
+            ):
+                model_names.add(str(referenced_model.get("name", "")))
     input_measures = {
         measure.get("name")
         for measure in type_params.get("input_measures", [])
         if measure.get("name")
     }
-    measure = type_params.get("measure")
-    if isinstance(measure, dict) and measure.get("name"):
-        input_measures.add(measure["name"])
+    if input_measures:
+        for semantic_model in semantic_manifest.get("semantic_models", []):
+            measure_names = {
+                model_measure.get("name")
+                for model_measure in semantic_model.get("measures", [])
+            }
+            if input_measures.intersection(measure_names):
+                model_names.add(str(semantic_model.get("name", "")))
+    return [
+        semantic_model
+        for semantic_model in semantic_manifest.get("semantic_models", [])
+        if semantic_model.get("name") in model_names
+    ]
+
+
+def dimensions_for_metric(
+    semantic_manifest: dict[str, Any], metric_name: str
+) -> list[str]:
     dimensions: set[str] = set()
-    for semantic_model in semantic_manifest.get("semantic_models", []):
-        measure_names = {
-            model_measure.get("name")
-            for model_measure in semantic_model.get("measures", [])
-        }
-        if input_measures.intersection(measure_names):
-            dimensions.update(
-                dimension.get("name")
-                for dimension in semantic_model.get("dimensions", [])
-                if dimension.get("name")
-            )
+    for semantic_model in semantic_models_for_metric(semantic_manifest, metric_name):
+        dimensions.update(
+            dimension.get("name")
+            for dimension in semantic_model.get("dimensions", [])
+            if dimension.get("name")
+        )
     return sorted(dimensions)
 
 
 def qualified_group_by(
     semantic_manifest: dict[str, Any], metric_name: str, requested: str
 ) -> str:
-    for semantic_model in semantic_manifest.get("semantic_models", []):
-        measure_names = {
-            measure.get("name") for measure in semantic_model.get("measures", [])
-        }
-        metric = next(
-            (
-                item
-                for item in semantic_manifest.get("metrics", [])
-                if item.get("name") == metric_name
-            ),
-            None,
-        )
-        if metric is None:
-            continue
-        type_params = metric.get("type_params") or {}
-        input_measures = {
-            measure.get("name")
-            for measure in type_params.get("input_measures", [])
-            if measure.get("name")
-        }
-        measure = type_params.get("measure")
-        if isinstance(measure, dict) and measure.get("name"):
-            input_measures.add(measure["name"])
-        if not input_measures.intersection(measure_names):
-            continue
+    for semantic_model in semantic_models_for_metric(semantic_manifest, metric_name):
         primary_entities = [
             entity.get("name")
             for entity in semantic_model.get("entities", [])
@@ -171,12 +177,25 @@ def qualified_group_by(
         ]
         for dimension in semantic_model.get("dimensions", []):
             dimension_name = dimension.get("name", "")
-            qualified = (
+            time_granularity = (
+                (dimension.get("type_params") or {}).get("time_granularity")
+                if dimension.get("type") == "time"
+                else None
+            )
+            base_qualified = (
                 f"{primary_entities[0]}__{dimension_name}"
                 if primary_entities
                 else dimension_name
             )
-            if requested in {dimension_name, qualified}:
+            qualified = (
+                f"{base_qualified}__{time_granularity}"
+                if time_granularity
+                else base_qualified
+            )
+            aliases = {dimension_name, base_qualified, qualified}
+            if time_granularity:
+                aliases.add(f"{dimension_name}__{time_granularity}")
+            if requested in aliases:
                 return qualified
     return requested
 
@@ -275,6 +294,7 @@ def reparse() -> dict[str, Any]:
         [
             str(DBT_EXECUTABLE),
             "parse",
+            "--no-partial-parse",
             "--project-dir",
             str(DBT_PROJECT),
             "--profiles-dir",

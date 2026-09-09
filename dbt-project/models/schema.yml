@@ -1,110 +1,99 @@
 version: 2
 
 models:
+  - name: metricflow_time_spine
+    description: Daily time spine.
+    semantic_model:
+      enabled: true
+    primary_entity: metric_time_spine_id
+    agg_time_dimension: metric_time_spine
+    columns:
+      - name: date_day
+        data_type: date
+        description: Daily time spine date.
+        granularity: day
+        dimension:
+          name: metric_time_spine
+          type: time
+
   - name: fct_orders
     description: Orders fact table.
+    semantic_model:
+      enabled: true
+      name: orders
+    agg_time_dimension: order_date
     columns:
       - name: id
         data_type: bigint
         description: Order ID.
+        entity:
+          name: order_id
+          type: primary
       - name: order_date
         data_type: date
         description: Order date.
+        granularity: day
+        dimension:
+          type: time
       - name: customer_id
         data_type: bigint
         description: Customer ID.
       - name: region
         data_type: varchar
         description: Sales region.
+        dimension:
+          type: categorical
       - name: amount
         data_type: decimal
         description: Order amount.
-
-semantic_models:
-  - name: metricflow_time_spine
-    model: ref('metricflow_time_spine')
-    description: Daily time spine.
-
-    entities:
-      - name: metric_time_spine_id
-        type: primary
-        expr: date_day
-
-    dimensions:
-      - name: metric_time_spine
-        type: time
-        type_params:
-          time_granularity: day
-
-  - name: orders
-    model: ref('fct_orders')
-    description: Orders semantic model.
-
-    entities:
-      - name: order_id
-        type: primary
-        expr: id
-
-    dimensions:
-      - name: region
-        type: categorical
-        expr: region
-      - name: order_date
-        type: time
-        expr: order_date
-        type_params:
-          time_granularity: day
-
-    measures:
+    metrics:
       - name: gmv
+        label: GMV
+        description: Gross merchandise value.
+        type: simple
         agg: sum
         expr: amount
-        agg_time_dimension: order_date
-        description: Gross merchandise value.
       - name: refunded_orders
-        agg: count
-        expr: id
-        agg_time_dimension: order_date
+        label: Refunded Orders
         description: Refunded order count.
-      - name: paid_orders
+        type: simple
         agg: count
         expr: id
-        agg_time_dimension: order_date
+      - name: paid_orders
+        label: Paid Orders
         description: Paid order count.
+        type: simple
+        agg: count
+        expr: id
+      - name: aov
+        label: AOV
+        description: Average order value.
+        type: simple
+        agg: sum
+        expr: amount
+      - name: refund_order_count
+        label: Refund Order Count
+        description: Local refund rate
+        type: simple
+        agg: count
+        expr: id
+      - name: order_count
+        label: Order Count
+        description: Local refund rate
+        type: simple
+        agg: count
+        expr: id
+      - name: amount_total
+        label: Amount Total
+        description: Local refund rate
+        type: simple
+        agg: sum
+        expr: amount
 
 metrics:
-  - name: refunded_orders
-    label: Refunded Orders
-    description: Refunded order count.
-    type: simple
-    type_params:
-      measure: refunded_orders
-
-  - name: paid_orders
-    label: Paid Orders
-    description: Paid order count.
-    type: simple
-    type_params:
-      measure: paid_orders
-
-  - name: gmv
-    label: GMV
-    description: Gross merchandise value.
-    type: simple
-    type_params:
-      measure: gmv
-
   - name: refund_rate
     label: Refund Rate
     description: 退款订单数 / 支付订单数
     type: ratio
-    type_params:
-      numerator: refunded_orders
-      denominator: paid_orders
-
-  - name: aov
-    label: AOV
-    description: Average order value.
-    type: simple
-    type_params:
-      measure: gmv
+    numerator: refunded_orders
+    denominator: paid_orders

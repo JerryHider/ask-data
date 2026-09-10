@@ -23,6 +23,15 @@ def init_db() -> None:
             'created_at TEXT NOT NULL)'
         )
         database.execute('CREATE INDEX IF NOT EXISTS idx_import_table ON import_history(table_name)')
+        database.execute(
+            'CREATE TABLE IF NOT EXISTS table_deletion_history ('
+            'id INTEGER PRIMARY KEY AUTOINCREMENT, '
+            'schema_name TEXT NOT NULL, '
+            'table_name TEXT NOT NULL, '
+            'estimated_row_count INTEGER NOT NULL, '
+            'duration_ms INTEGER NOT NULL, '
+            'created_at TEXT NOT NULL)'
+        )
 
 
 def add_import_history(**values: Any) -> None:
@@ -58,3 +67,20 @@ def list_import_history(limit: int = 100) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+def add_table_deletion_history(**values: Any) -> None:
+    created_at = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(DATABASE_PATH) as database:
+        database.execute(
+            'INSERT INTO table_deletion_history '
+            '(schema_name, table_name, estimated_row_count, duration_ms, created_at) '
+            'VALUES (?, ?, ?, ?, ?)',
+            (
+                values['schema_name'],
+                values['table_name'],
+                values['estimated_row_count'],
+                values['duration_ms'],
+                created_at,
+            ),
+        )

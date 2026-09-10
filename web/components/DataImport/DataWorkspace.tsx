@@ -51,6 +51,7 @@ export default function DataWorkspace() {
   const [result, setResult] = useState<QueryResult | null>(null);
   const [loadingTables, setLoadingTables] = useState(false);
   const [querying, setQuerying] = useState(false);
+  const [deletingTable, setDeletingTable] = useState('');
   const [error, setError] = useState('');
 
   const loadTables = useCallback(async () => {
@@ -118,6 +119,41 @@ export default function DataWorkspace() {
     }
   }
 
+  async function deleteTable(table: DatabaseTable) {
+    const tableKey = `${table.schema}.${table.name}`;
+    if (deletingTable) return;
+    if (
+      !window.confirm(
+        `确定删除 ${tableKey} 吗？删除后数据和表结构不可恢复。`
+      )
+    ) {
+      return;
+    }
+
+    setDeletingTable(tableKey);
+    setError('');
+    try {
+      const response = await fetch(
+        `/api/ingest/tables/${encodeURIComponent(table.schema)}/${encodeURIComponent(table.name)}`,
+        { method: 'DELETE' }
+      );
+      if (!response.ok) {
+        const detail = (await response.json()) as { detail?: string };
+        throw new Error(detail.detail ?? '删除表失败');
+      }
+      if (selectedTable?.schema === table.schema && selectedTable?.name === table.name) {
+        setSelectedTable(null);
+        setSql('');
+        setResult(null);
+      }
+      await loadTables();
+    } catch (deleteError) {
+      setError((deleteError as Error).message);
+    } finally {
+      setDeletingTable('');
+    }
+  }
+
   return (
     <section className="flex min-w-0 flex-1 flex-col bg-white">
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 px-4">
@@ -160,21 +196,38 @@ export default function DataWorkspace() {
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-2">
               {filteredTables.map((table) => (
-                <button
+                <div
                   key={`${table.schema}.${table.name}`}
-                  type="button"
-                  onClick={() => selectTable(table)}
                   className={`mb-2 w-full rounded border px-3 py-2 text-left text-sm ${
                     selectedTable?.schema === table.schema && selectedTable?.name === table.name
                       ? 'border-blue-500 bg-blue-50'
                       : 'border-slate-200 bg-white hover:bg-slate-100'
                   }`}
                 >
-                  <span className="block truncate font-medium">{table.name}</span>
-                  <span className="mt-1 block text-xs text-slate-500">
-                    {table.schema} · 约 {table.estimatedRowCount} 行 · {table.columns.length} 字段
-                  </span>
-                </button>
+                  <div className="flex items-start justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => selectTable(table)}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <span className="block truncate font-medium">{table.name}</span>
+                      <span className="mt-1 block text-xs text-slate-500">
+                        {table.schema} · 约 {table.estimatedRowCount} 行 · {table.columns.length} 字段
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void deleteTable(table);
+                      }}
+                      disabled={deletingTable !== ''}
+                      className="shrink-0 rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:border-red-400 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {deletingTable === `${table.schema}.${table.name}` ? '删除中…' : '删除'}
+                    </button>
+                  </div>
+                </div>
               ))}
               {!loadingTables && filteredTables.length === 0 ? (
                 <p className="px-2 py-4 text-sm text-slate-500">暂无匹配的数据表</p>

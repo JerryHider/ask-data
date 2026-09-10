@@ -17,7 +17,12 @@ from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from models import add_import_history, init_db, list_import_history
+from models import (
+    add_import_history,
+    add_table_deletion_history,
+    init_db,
+    list_import_history,
+)
 
 
 app = FastAPI(title='AskData data ingest')
@@ -205,6 +210,48 @@ def list_tables() -> list[dict[str, Any]]:
         }
         for table in tables
     ]
+
+
+@app.delete('/tables/{schema_name}/{table_name}')
+def delete_table(schema_name: str, table_name: str) -> dict[str, bool]:
+    if not IDENTIFIER_PATTERN.fullmatch(schema_name) or not IDENTIFIER_PATTERN.fullmatch(table_name):
+        raise HTTPException(status_code=422, detail='schema or table name is invalid')
+
+    started_at = time.monotonic()
+    connection = mysql_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'SELECT TABLE_TYPE, TABLE_ROWS '
+                'FROM information_schema.TABLES '
+                'WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s '
+                "AND TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')",
+                (schema_name, table_name),
+            )
+            table = cursor.fetchone()
+            if table is None:
+                raise HTTPException(status_code=404, detail='Table not found')
+            if table['TABLE_TYPE'] != 'BASE TABLE':
+                raise HTTPException(status_code=422, detail='Only base tables can be deleted')
+            cursor.execute(f'DROP TABLE `{schema_name}`.`{table_name}`')
+        connection.commit()
+    except HTTPException:
+        connection.rollback()
+        raise
+    except Exception as exc:
+        connection.rollback()
+        raise HTTPException(status_code=500, detail='Table deletion failed') from exc
+    finally:
+        connection.close()
+
+    duration_ms = int((time.monotonic() - started_at) * 1000)
+    add_table_deletion_history(
+        schema_name=schema_name,
+        table_name=table_name,
+        estimated_row_count=int(table['TABLE_ROWS'] or 0),
+        duration_ms=duration_ms,
+    )
+    return {'ok': True}
 
 
 @app.post('/query')

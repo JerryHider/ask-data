@@ -5,6 +5,8 @@ import os
 import re
 import time
 import uuid
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
@@ -24,6 +26,7 @@ UPLOAD_DIR = ROOT / 'data' / 'tmp_uploads'
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_FILE_MB = int(os.environ.get('INGEST_MAX_FILE_MB', '50'))
 IDENTIFIER_PATTERN = re.compile(r'^[A-Za-z_][A-Za-z0-9_]{0,63}$')
+SQL_SANDBOX_URL = os.environ.get('SQL_SANDBOX_URL', 'http://sandbox:8003').rstrip('/')
 
 
 class ColumnMapping(BaseModel):
@@ -39,6 +42,10 @@ class ImportRequest(BaseModel):
     primary_key: str | None = None
     target_datasource: str = 'mysql'
     auto_draft: bool = False
+
+
+class QueryRequest(BaseModel):
+    sql: str = Field(min_length=1, max_length=20_000)
 
 
 def parse_mysql_url(url: str) -> dict[str, Any]:
@@ -151,6 +158,86 @@ def mysql_type(data_type: str, primary_key: bool) -> str:
 @app.get('/imports')
 def list_imports() -> list[dict[str, Any]]:
     return list_import_history()
+
+
+@app.get('/tables')
+def list_tables() -> list[dict[str, Any]]:
+    connection = mysql_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, TABLE_ROWS '
+                'FROM information_schema.TABLES '
+                'WHERE TABLE_SCHEMA NOT IN (%s, %s, %s, %s) '
+                'ORDER BY TABLE_SCHEMA, TABLE_NAME',
+                ('mysql', 'information_schema', 'performance_schema', 'sys'),
+            )
+            tables = cursor.fetchall()
+            cursor.execute(
+                'SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_KEY '
+                'FROM information_schema.COLUMNS '
+                'WHERE TABLE_SCHEMA NOT IN (%s, %s, %s, %s) '
+                'ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION',
+                ('mysql', 'information_schema', 'performance_schema', 'sys'),
+            )
+            columns = cursor.fetchall()
+    finally:
+        connection.close()
+
+    columns_by_table: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for column in columns:
+        key = (column['TABLE_SCHEMA'], column['TABLE_NAME'])
+        columns_by_table.setdefault(key, []).append(
+            {
+                'name': column['COLUMN_NAME'],
+                'dataType': column['DATA_TYPE'],
+                'nullable': column['IS_NULLABLE'] == 'YES',
+                'key': column['COLUMN_KEY'],
+            }
+        )
+    return [
+        {
+            'schema': table['TABLE_SCHEMA'],
+            'name': table['TABLE_NAME'],
+            'type': table['TABLE_TYPE'],
+            'estimatedRowCount': int(table['TABLE_ROWS'] or 0),
+            'columns': columns_by_table.get((table['TABLE_SCHEMA'], table['TABLE_NAME']), []),
+        }
+        for table in tables
+    ]
+
+
+@app.post('/query')
+def query_database(request: QueryRequest) -> dict[str, Any]:
+    sql = request.sql.strip()
+    if sql.endswith(';'):
+        sql = sql[:-1].rstrip()
+    if ';' in sql:
+        raise HTTPException(status_code=422, detail='Only one SQL statement is allowed')
+    if not re.match(r'^(select|with)\b', sql, re.IGNORECASE):
+        raise HTTPException(status_code=422, detail='Only SELECT queries are allowed')
+    if re.search(r'\binto\s+(outfile|dumpfile)\b', sql, re.IGNORECASE):
+        raise HTTPException(status_code=422, detail='File output queries are not allowed')
+
+    payload = json.dumps({'sql': sql, 'datasource': 'mysql', 'user': 'admin'}).encode('utf-8')
+    outbound = urllib.request.Request(
+        SQL_SANDBOX_URL + '/execute',
+        data=payload,
+        headers={'content-type': 'application/json'},
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(outbound, timeout=35) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except urllib.error.HTTPError as exc:
+        try:
+            body = json.loads(exc.read().decode('utf-8'))
+        except Exception:
+            body = {}
+        detail = body.get('message') or body.get('detail') or f'SQL sandbox error: {exc.code}'
+        raise HTTPException(status_code=exc.code, detail=detail) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail='SQL sandbox is unavailable') from exc
 
 
 @app.post('/import')

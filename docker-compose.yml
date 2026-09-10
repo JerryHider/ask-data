@@ -81,10 +81,13 @@ services:
     environment:
       DATASOURCE_MYSQL_URL: mysql://${MYSQL_USER:-askdata}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-askdata}
       INGEST_MAX_FILE_MB: ${INGEST_MAX_FILE_MB:-50}
+      SQL_SANDBOX_URL: http://sandbox:8003
     volumes:
       - ./data:/app/data
     depends_on:
       mysql:
+        condition: service_healthy
+      sandbox:
         condition: service_healthy
     healthcheck:
       test: [CMD, python, -c, import urllib.request; urllib.request.urlopen('http://localhost:8005/health')]

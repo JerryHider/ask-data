@@ -2,8 +2,6 @@
 
 import TaskList from './TaskList';
 import ModelListPanel from '../SemanticModel/ModelListPanel';
-import FileImportPanel from '../DataImport/FileImportPanel';
-import DbConnectionPanel from '../DataImport/DbConnectionPanel';
 import SettingsPanel from '../AskSettings/SettingsPanel';
 import SkillListPanel from '../Skills/SkillListPanel';
 import { useAskDataStore } from '../../lib/store';
@@ -35,12 +33,6 @@ export default function ModulePanel() {
       <div className="min-h-0 flex-1 overflow-auto p-3">
         {activeModule === 'tasks' ? <TaskList /> : null}
         {activeModule === 'semantic' ? <ModelListPanel /> : null}
-        {activeModule === 'ingest' ? (
-          <div className="space-y-4">
-            <FileImportPanel />
-            <DbConnectionPanel />
-          </div>
-        ) : null}
         {activeModule === 'settings' ? <SettingsPanel /> : null}
         {activeModule === 'skills' ? <SkillListPanel /> : null}
       </div>

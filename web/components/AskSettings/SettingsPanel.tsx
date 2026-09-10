@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import LlmConfigForm from './LlmConfigForm';
 import SqlExampleEditor from './SqlExampleEditor';
 import RagSpaceManager from './RagSpaceManager';
+import SkillListPanel from '../Skills/SkillListPanel';
 
 interface ContextSettings {
   history_window: number;
@@ -112,6 +113,9 @@ export default function SettingsPanel() {
       </Section>
       <Section title='RAG 知识库'>
         <RagSpaceManager />
+      </Section>
+      <Section title='自定义 Skill'>
+        <SkillListPanel />
       </Section>
       <Section title='沙箱设置'>
         {sandbox ? (

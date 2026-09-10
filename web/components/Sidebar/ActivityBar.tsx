@@ -7,7 +7,6 @@ const modules: Array<{ key: ModuleKey; label: string; tooltip: string; icon: str
   { key: 'semantic', label: '语义', tooltip: '语义模型管理', icon: '≡' },
   { key: 'ingest', label: '接入', tooltip: '数据导入与连接', icon: '▤' },
   { key: 'settings', label: '设置', tooltip: '智能问数配置', icon: '⚙' },
-  { key: 'skills', label: '技能', tooltip: '自定义 Skill', icon: '✦' },
 ];
 
 export default function ActivityBar() {

@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 
-export type ModuleKey = 'tasks' | 'semantic' | 'ingest' | 'settings' | 'skills';
+export type ModuleKey = 'tasks' | 'semantic' | 'ingest' | 'settings';
 export type ChatRole = 'user' | 'assistant' | 'clarify' | 'tool';
 
 export interface QueryResult {

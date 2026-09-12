@@ -3,9 +3,10 @@
 export interface TemplateField {
   key: string;
   label: string;
-  type: 'text' | 'textarea' | 'select' | 'array';
+  type: 'text' | 'textarea' | 'select' | 'boolean' | 'array' | 'string_array';
   required: boolean;
   options?: string[];
+  item_fields?: TemplateField[];
 }
 
 export interface SemanticTemplate {

@@ -28,18 +28,69 @@ DBT_EXECUTABLE = executable_for("dbt")
 
 
 def normalize_mysql_sql(sql: str) -> str:
-    select_index = sql.upper().find("SELECT")
-    if select_index < 0:
+    statement_match = re.search(r"(?mis)^\s*(?:WITH\b|SELECT\b)", sql)
+    if statement_match is None:
         return sql
-    sql = sql[select_index:]
+    sql = sql[statement_match.start():]
     sql = re.sub(
-        r'\s*"askdata"\s*\.\s*"askdata"\s*\.\s*"([^"]+)"',
-        r" askdata.`\1`",
+        r'"([^"]+)"\s*\.\s*"([^"]+)"\s*\.\s*"([^"]+)"',
+        r"`\2`.`\3`",
         sql,
     )
-    return sql.replace('"', '`')
+    sql = re.sub(
+        r'"([^"]+)"\s*\.\s*"([^"]+)"',
+        r"`\1`.`\2`",
+        sql,
+    )
+    sql = sql.replace('"', '`')
+    sql = _replace_date_trunc(sql)
+    return sql.replace("GEN_RANDOM_UUID()", "UUID()")
+
+
+def _replace_date_trunc(sql: str) -> str:
+    pattern = re.compile(r"DATE_TRUNC\('([a-z]+)',\s*", re.IGNORECASE)
+    while True:
+        match = pattern.search(sql)
+        if match is None:
+            return sql
+        depth = 1
+        position = match.end()
+        while position < len(sql) and depth:
+            character = sql[position]
+            if character == "(":
+                depth += 1
+            elif character == ")":
+                depth -= 1
+            position += 1
+        if depth:
+            return sql
+        expression = sql[match.end():position - 1].strip()
+        granularity = match.group(1).lower()
+        if granularity == "day":
+            replacement = f"DATE({expression})"
+        elif granularity == "month":
+            replacement = f"CAST(DATE_FORMAT({expression}, '%Y-%m-01') AS DATE)"
+        elif granularity == "quarter":
+            replacement = (
+                f"MAKEDATE(YEAR({expression}), 1) "
+                f"+ INTERVAL (QUARTER({expression}) * 3 - 3) MONTH"
+            )
+        elif granularity == "year":
+            replacement = f"CAST(DATE_FORMAT({expression}, '%Y-01-01') AS DATE)"
+        elif granularity == "week":
+            replacement = f"DATE_SUB(DATE({expression}), INTERVAL WEEKDAY({expression}) DAY)"
+        elif granularity == "hour":
+            replacement = f"CAST(DATE_FORMAT({expression}, '%Y-%m-%d %H:00:00') AS DATETIME)"
+        else:
+            replacement = expression
+        sql = sql[:match.start()] + replacement + sql[position:]
 
 app = FastAPI(title="AskData MetricFlow bridge")
+
+
+@app.on_event("startup")
+def startup() -> None:
+    reparse()
 
 
 class MetricFlowError(Exception):

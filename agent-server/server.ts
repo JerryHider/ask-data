@@ -77,6 +77,22 @@ interface CompileOptions {
   end_time?: string;
 }
 
+interface SemanticMetric {
+  name: string;
+  description: string;
+  type: string;
+  available_dimensions: string[];
+}
+
+interface SemanticMetricQueryRequest {
+  metrics: string[];
+  groupBy?: string[];
+  startTime?: string;
+  endTime?: string;
+  limit?: number;
+  user?: string;
+}
+
 interface QueryMetricParameters {
   metric: string;
   startTime?: string;
@@ -142,10 +158,16 @@ async function postJson<TRequest, TResult>(url: string, payload: TRequest): Prom
   });
   const data: unknown = await response.json();
   if (!response.ok) {
+    const detailMessage =
+      typeof data === 'object' && data !== null && 'detail' in data
+        ? String((data as { detail?: unknown }).detail)
+        : typeof data === 'object' && data !== null && 'error' in data && 'message' in data
+          ? String((data as { message?: unknown }).message)
+          : null;
     const message =
       typeof data === 'object' && data !== null && 'message' in data
         ? String((data as { message?: unknown }).message)
-        : `Request failed: ${response.status}`;
+        : detailMessage ?? `Request failed: ${response.status}`;
     throw new Error(message);
   }
   return data as TResult;
@@ -888,6 +910,56 @@ app.post('/api/datasources/refresh', async (_request, response) => {
     response.json({ status: 'ok', datasources: connectorRegistry.listNames(), result });
   } catch (error) {
     response.status(503).json({ message: (error as Error).message });
+  }
+});
+
+app.get('/api/semantic-metrics', async (_request, response) => {
+  try {
+    const metrics = await postJson<Record<string, never>, SemanticMetric[]>(
+      `${metricFlowUrl}/list_metrics`,
+      {}
+    );
+    response.json(metrics);
+  } catch (error) {
+    response.status(503).json({ message: (error as Error).message });
+  }
+});
+
+app.post('/api/semantic-metrics/query', async (request, response) => {
+  const body = (request.body ?? {}) as SemanticMetricQueryRequest;
+  const metrics = (body.metrics ?? []).map((metric) => metric.trim()).filter(Boolean);
+  const limit = Number(body.limit ?? 100);
+  if (metrics.length === 0) {
+    response.status(400).json({ message: 'metrics is required' });
+    return;
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+    response.status(400).json({ message: 'limit must be 1-1000' });
+    return;
+  }
+
+  try {
+    const compiled = await postJson<
+      CompileOptions,
+      { sql: string; dialect: string }
+    >(`${metricFlowUrl}/compile_sql`, {
+      metrics,
+      group_by: body.groupBy ?? [],
+      limit,
+      start_time: body.startTime,
+      end_time: body.endTime,
+    });
+    const result = await postJson<
+      { sql: string; datasource: string; user: string },
+      QueryResult
+    >(`${sandboxUrl}/execute`, {
+      sql: compiled.sql,
+      datasource: 'mysql',
+      user: body.user ?? 'admin',
+    });
+    response.json(result);
+  } catch (error) {
+    response.status(422).json({ message: (error as Error).message });
   }
 });
 

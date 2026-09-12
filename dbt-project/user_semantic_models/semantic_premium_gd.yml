@@ -1,0 +1,10 @@
+version: 2
+
+metrics:
+  - name: premium_gd
+    label: 广东保费
+    description: 投保单位在广东省的保费。
+    type: simple
+    type_params:
+      measure: total_premium
+    filter: "{{ Dimension('insurance_order__insure_unit_province') }} = '广东省'"

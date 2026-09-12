@@ -1,0 +1,10 @@
+version: 2
+
+metrics:
+  - name: avg_premium_per_policy
+    label: 件均保费
+    description: 保费除以保单数。
+    type: ratio
+    type_params:
+      numerator: premium
+      denominator: policy_count

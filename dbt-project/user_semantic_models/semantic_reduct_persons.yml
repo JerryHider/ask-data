@@ -1,0 +1,9 @@
+version: 2
+
+metrics:
+  - name: reduct_persons
+    label: 减保人数
+    description: 减保人次合计。
+    type: simple
+    type_params:
+      measure: reduct_person_cnt

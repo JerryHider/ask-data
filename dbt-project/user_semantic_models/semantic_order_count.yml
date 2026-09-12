@@ -1,0 +1,9 @@
+version: 2
+
+metrics:
+  - name: order_count
+    label: 订单数
+    description: 订单数量。
+    type: simple
+    type_params:
+      measure: order_cnt

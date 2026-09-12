@@ -62,6 +62,7 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       METRICFLOW_BRIDGE_URL: http://metricflow-bridge:8002
       ARTIFACT_PARSER_URL: http://artifact-parser:8001
+      SQL_SANDBOX_URL: http://sandbox:8003
     volumes:
       - ./data:/app/data
       - ./dbt-project/user_semantic_models:/app/dbt-project/user_semantic_models

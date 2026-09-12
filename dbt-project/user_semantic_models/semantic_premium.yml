@@ -1,0 +1,13 @@
+version: 2
+
+metrics:
+  - name: premium
+    label: 保费
+    description: 订单保费合计，默认按订单生效时间统计。
+    type: simple
+    type_params:
+      measure: total_premium
+    config:
+      meta:
+        owner: data@company.com
+        synonyms: [保费收入, 总保费, 承保保费]

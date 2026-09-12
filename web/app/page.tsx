@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import ActivityBar from '../components/Sidebar/ActivityBar';
 import DataWorkspace from '../components/DataImport/DataWorkspace';
+import SemanticWorkspace from '../components/SemanticModel/SemanticWorkspace';
 import ModulePanel from '../components/Sidebar/ModulePanel';
 import MessageList from '../components/ChatPanel/MessageList';
 import InputBox from '../components/ChatPanel/InputBox';
@@ -21,7 +22,9 @@ export default function HomePage() {
   return (
     <main className="flex h-screen w-screen overflow-hidden bg-slate-100">
       <ActivityBar />
-      {activeModule === 'ingest' ? (
+      {activeModule === 'semantic' ? (
+        <SemanticWorkspace />
+      ) : activeModule === 'ingest' ? (
         <DataWorkspace />
       ) : (
         <>

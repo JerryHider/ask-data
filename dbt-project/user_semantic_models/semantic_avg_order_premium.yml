@@ -1,0 +1,9 @@
+version: 2
+
+metrics:
+  - name: avg_order_premium
+    label: 单均保费
+    description: 订单平均保费。
+    type: simple
+    type_params:
+      measure: avg_order_premium

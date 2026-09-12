@@ -1,9 +1,0 @@
-version: 2
-
-metrics:
-  - name: refund_rate_local_ratio
-    label: Refund Rate Local Ratio
-    description: Local refund rate
-    type: ratio
-    numerator: order_count
-    denominator: amount_total

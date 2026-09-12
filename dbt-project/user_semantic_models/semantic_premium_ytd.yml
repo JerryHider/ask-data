@@ -1,0 +1,11 @@
+version: 2
+
+metrics:
+  - name: premium_ytd
+    label: 年累计保费
+    description: 本年保费累计，每年 1 月 1 日重置。
+    type: cumulative
+    type_params:
+      measure: total_premium
+      cumulative_type_params:
+        grain_to_date: year

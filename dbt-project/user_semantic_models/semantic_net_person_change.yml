@@ -1,0 +1,14 @@
+version: 2
+
+metrics:
+  - name: net_person_change
+    label: 净增投保人数
+    description: 投保人数减去减保人数。
+    type: derived
+    type_params:
+      expr: additions - reductions
+      metrics:
+        - name: insured_persons
+          alias: additions
+        - name: reduct_persons
+          alias: reductions

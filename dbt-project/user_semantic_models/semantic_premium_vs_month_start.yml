@@ -1,0 +1,15 @@
+version: 2
+
+metrics:
+  - name: premium_vs_month_start
+    label: 当期保费与月初保费差
+    description: 当期保费减去对齐到月初的保费。
+    type: derived
+    type_params:
+      expr: current - month_start
+      metrics:
+        - name: premium
+          alias: current
+        - name: premium
+          offset_to_grain: month
+          alias: month_start

@@ -4,7 +4,7 @@ import json
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 
 from models import Base, DbConnection, LlmConfig, RagDoc, RagSpace, SemanticModel, SessionLocal, Skill, SqlExample, Setting, engine
 from security import decrypt_secret, encrypt_secret
+from semantic import config_from_yaml, metric_yaml, semantic_model_yaml, validate_metric, validate_name, validate_semantic_model
 from templates import TEMPLATES, template_by_id
 
 
@@ -32,7 +33,37 @@ USER_MODELS_DIR.mkdir(parents=True, exist_ok=True)
 SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 METRICFLOW_BRIDGE_URL = os.environ.get('METRICFLOW_BRIDGE_URL', 'http://metricflow-bridge:8002')
 ARTIFACT_PARSER_URL = os.environ.get('ARTIFACT_PARSER_URL', 'http://artifact-parser:8001')
+SQL_SANDBOX_URL = os.environ.get('SQL_SANDBOX_URL', 'http://sandbox:8003')
 NAME_PATTERN = re.compile(r'^[a-z][a-z0-9_]{0,59}$')
+TEMPLATE_METRIC_TYPES = {
+    'simple-metric': 'simple',
+    'ratio-metric': 'ratio',
+    'derived-metric': 'derived',
+    'cumulative-metric': 'cumulative',
+    'conversion-metric': 'conversion',
+}
+SEED_SEMANTIC_FILES = [
+    ('semantic-model', 'semantic_insurance_order.yml'),
+    ('simple-metric', 'semantic_premium.yml'),
+    ('simple-metric', 'semantic_premium_paid_time.yml'),
+    ('simple-metric', 'semantic_premium_gd.yml'),
+    ('simple-metric', 'semantic_policy_count.yml'),
+    ('simple-metric', 'semantic_order_count.yml'),
+    ('simple-metric', 'semantic_insured_persons.yml'),
+    ('simple-metric', 'semantic_reduct_persons.yml'),
+    ('simple-metric', 'semantic_avg_order_premium.yml'),
+    ('simple-metric', 'semantic_premium_p95.yml'),
+    ('simple-metric', 'semantic_current_insured_persons.yml'),
+    ('ratio-metric', 'semantic_avg_premium_per_policy.yml'),
+    ('ratio-metric', 'semantic_gd_premium_share.yml'),
+    ('derived-metric', 'semantic_net_person_change.yml'),
+    ('derived-metric', 'semantic_premium_yoy.yml'),
+    ('derived-metric', 'semantic_gd_premium_yoy.yml'),
+    ('derived-metric', 'semantic_premium_vs_month_start.yml'),
+    ('cumulative-metric', 'semantic_premium_ytd.yml'),
+    ('cumulative-metric', 'semantic_premium_rolling_30d.yml'),
+    ('conversion-metric', 'semantic_policy_cancellation_rate.yml'),
+]
 
 
 class CreateModelRequest(BaseModel):
@@ -169,7 +200,7 @@ def table_columns(table_name: str) -> list[dict[str, Any]]:
     with connect_with(default_connection()) as database:
         with database.cursor() as cursor:
             cursor.execute(
-                'SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE '
+                'SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_KEY '
                 'FROM information_schema.COLUMNS WHERE TABLE_NAME = %s '
                 'AND (%s IS NULL OR TABLE_SCHEMA = %s) ORDER BY ORDINAL_POSITION',
                 (table, schema, schema),
@@ -191,90 +222,157 @@ def model_to_dict(model: SemanticModel) -> dict[str, Any]:
     }
 
 
-def validate_name(name: str) -> None:
-    if not NAME_PATTERN.fullmatch(name):
-        raise HTTPException(status_code=422, detail='name must match ^[a-z][a-z0-9_]{0,59}$')
+def semantic_config_yaml(template_id: str, config: dict[str, Any]) -> str:
+    return semantic_model_yaml(config) if template_id == 'semantic-model' else metric_yaml(config)
 
 
-def measures_from_config(config: dict[str, Any]) -> list[dict[str, Any]]:
-    if config.get('measures'):
-        return list(config['measures'])
-    if config.get('numerator') and config.get('denominator'):
-        return [
-            {'name': 'numerator', 'agg': 'sum', 'expr': config['numerator']},
-            {'name': 'denominator', 'agg': 'sum', 'expr': config['denominator']},
+def validate_semantic_config(template_id: str, config: dict[str, Any]) -> None:
+    if template_id == 'semantic-model':
+        source_table = str(config.get('source_table', '')).strip()
+        columns = table_columns(source_table) if source_table else []
+        if not columns:
+            raise ValueError('源表不存在：' + source_table)
+        model_path = USER_MODELS_DIR / (str(config.get('model_name', '')) + '.sql')
+        if not model_path.exists():
+            raise ValueError('dbt 模型文件不存在：' + model_path.name)
+        validate_semantic_model(config, {item['COLUMN_NAME'] for item in columns})
+        return
+    metric_type = TEMPLATE_METRIC_TYPES.get(template_id)
+    if not metric_type:
+        raise ValueError('模板类型无效')
+    if config.get('type') != metric_type:
+        raise ValueError('指标类型与模板不一致')
+    with SessionLocal() as session:
+        published = session.query(SemanticModel).filter(SemanticModel.status == 'published').all()
+        semantic_configs = [
+            json.loads(item.config)
+            for item in published
+            if item.template_id == 'semantic-model'
         ]
-    return []
+        metric_configs = [
+            json.loads(item.config)
+            for item in published
+            if item.template_id != 'semantic-model'
+        ]
+    validate_metric(config, semantic_configs, metric_configs)
 
 
-def validate_semantic_config(config: dict[str, Any]) -> None:
-    source_table = str(config.get('source_table', '')).strip()
-    columns = table_columns(source_table) if source_table else []
-    if not source_table or not columns:
-        raise HTTPException(status_code=422, detail='source table does not exist: ' + source_table)
-    column_names = {item['COLUMN_NAME'] for item in columns}
-    referenced = {
-        str(item['expr'])
-        for item in config.get('entities', []) + config.get('dimensions', []) + measures_from_config(config)
-        if item.get('expr')
-    }
-    missing = sorted(referenced - column_names)
-    if missing:
-        raise HTTPException(status_code=422, detail='missing columns: ' + ', '.join(missing))
-    if config.get('numerator') and config.get('denominator'):
-        names = {item['name'] for item in measures_from_config(config)}
-        for key in ('numerator', 'denominator'):
-            if config[key] not in column_names and config[key] not in names:
-                raise HTTPException(status_code=422, detail=key + ' must reference a column or measure')
+def semantic_yaml_path(name: str) -> Path:
+    return USER_MODELS_DIR / ('semantic_' + name + '.yml')
 
 
-def semantic_yaml(config: dict[str, Any]) -> str:
-    measures = measures_from_config(config)
-    dimensions = config.get('dimensions', [])
-    time_dimension = next(
-        (item['name'] for item in dimensions if item.get('type') == 'time'), None
-    )
-    for measure in measures:
-        if time_dimension:
-            measure.setdefault('agg_time_dimension', time_dimension)
-    source_ref = 'ref(' + chr(39) + config['source_table'] + chr(39) + ')'
-    entities = [
-        {**entity, 'name': config['model_name'] + '_' + entity['name']}
-        for entity in config.get('entities', [])
-    ]
-    semantic_model = {
-        'name': config['model_name'],
-        'model': source_ref,
-        'description': config.get('description', ''),
-        'entities': entities,
-        'dimensions': dimensions,
-        'measures': measures,
-    }
-    metrics = []
-    for measure in measures:
-        metrics.append({
-            'name': measure['name'],
-            'label': measure['name'],
-            'description': config.get('description', ''),
-            'type': 'simple',
-            'type_params': {'measure': measure['name']},
-        })
-    if config.get('numerator') and config.get('denominator'):
-        names = {item['name'] for item in measures}
-        numerator = config['numerator'] if config['numerator'] in names else 'numerator'
-        denominator = config['denominator'] if config['denominator'] in names else 'denominator'
-        metrics.append({
-            'name': config['model_name'] + '_ratio',
-            'label': config['model_name'] + ' ratio',
-            'description': config.get('description', ''),
-            'type': 'ratio',
-            'type_params': {'numerator': numerator, 'denominator': denominator},
-        })
-    return yaml.safe_dump(
-        {'version': 2, 'semantic_models': [semantic_model], 'metrics': metrics},
-        sort_keys=False,
-        allow_unicode=True,
-    )
+def dependent_models(session: Any, model: SemanticModel) -> list[SemanticModel]:
+    if model.template_id == 'semantic-model':
+        return (
+            session.query(SemanticModel)
+            .filter(
+                SemanticModel.id != model.id,
+                SemanticModel.status == 'published',
+                SemanticModel.template_id != 'semantic-model',
+            )
+            .all()
+        )
+    dependents: list[SemanticModel] = []
+    for candidate in (
+        session.query(SemanticModel)
+        .filter(
+            SemanticModel.id != model.id,
+            SemanticModel.status == 'published',
+            SemanticModel.template_id.in_(['ratio-metric', 'derived-metric']),
+        )
+        .all()
+    ):
+        config = json.loads(candidate.config)
+        references = [config.get('numerator'), config.get('denominator')]
+        references.extend(item.get('name') for item in config.get('input_metrics', []))
+        if model.name in references:
+            dependents.append(candidate)
+    return dependents
+
+
+def write_audit(event_type: str, name: str, decision: str = 'allowed') -> None:
+    try:
+        httpx.post(
+            SQL_SANDBOX_URL + '/audit',
+            json={
+                'user': 'admin',
+                'event_type': event_type,
+                'tool_name': 'registry.semantic_models',
+                'sql_text': name,
+                'decision': decision,
+            },
+            timeout=3,
+        )
+    except httpx.HTTPError:
+        pass
+
+
+def ensure_metricflow_time_spine() -> None:
+    try:
+        connection = default_connection()
+        with connect_with(connection) as database:
+            with database.cursor() as cursor:
+                cursor.execute(
+                    "SELECT COUNT(*) AS n FROM information_schema.TABLES "
+                    "WHERE TABLE_SCHEMA = 'askdata_import' AND TABLE_NAME = 'order_detail'"
+                )
+                if cursor.fetchone()['n'] == 0:
+                    return
+                cursor.execute(
+                    'CREATE TABLE IF NOT EXISTS metricflow_time_spine (date_day DATE PRIMARY KEY)'
+                )
+                cursor.execute(
+                    'SELECT MIN(CAST(order_effective_time AS DATE)) AS min_date, '
+                    'MAX(CAST(order_effective_time AS DATE)) AS max_date '
+                    'FROM askdata_import.order_detail'
+                )
+                date_range = cursor.fetchone()
+                current_date = date_range['min_date']
+                max_date = date_range['max_date']
+                while current_date <= max_date:
+                    chunk = []
+                    while current_date <= max_date and len(chunk) < 500:
+                        chunk.append(current_date)
+                        current_date += timedelta(days=1)
+                    placeholders = ', '.join(['(%s)'] * len(chunk))
+                    cursor.execute(
+                        'INSERT IGNORE INTO metricflow_time_spine (date_day) VALUES ' + placeholders,
+                        chunk,
+                    )
+                database.commit()
+    except Exception:
+        return
+
+
+def migrate_semantic_models() -> None:
+    marker = 'semantic_models_rebuilt_v2'
+    with SessionLocal() as session:
+        if session.get(Setting, marker):
+            return
+        for model in session.query(SemanticModel).filter(SemanticModel.template_id.like('tpl-%')).all():
+            session.delete(model)
+        for template_id, file_name in SEED_SEMANTIC_FILES:
+            path = USER_MODELS_DIR / file_name
+            if not path.exists():
+                continue
+            config = config_from_yaml(path, template_id)
+            name = str(config['name'])
+            if session.query(SemanticModel).filter(SemanticModel.name == name).first():
+                continue
+            session.add(
+                SemanticModel(
+                    name=name,
+                    template_id=template_id,
+                    status='published',
+                    config=json.dumps(config, ensure_ascii=False),
+                    yaml_path=str(semantic_yaml_path(name)),
+                )
+            )
+        if session.get(Setting, marker):
+            session.get(Setting, marker).value = 'true'
+        else:
+            session.add(Setting(key=marker, value='true'))
+        session.commit()
 
 
 async def call_service(url: str) -> None:
@@ -288,6 +386,8 @@ async def call_service(url: str) -> None:
 def startup() -> None:
     Base.metadata.create_all(engine)
     ensure_default_connection()
+    ensure_metricflow_time_spine()
+    migrate_semantic_models()
 
 
 @app.get('/health')
@@ -313,7 +413,7 @@ def list_models(status: str | None = None) -> list[dict[str, Any]]:
 def create_model(request: CreateModelRequest) -> dict[str, Any]:
     if not template_by_id(request.template_id):
         raise HTTPException(status_code=422, detail='template_id is invalid')
-    name = str(request.config.get('model_name', '')).strip()
+    name = str(request.config.get('name', '')).strip()
     validate_name(name)
     model = SemanticModel(
         name=name,
@@ -329,6 +429,7 @@ def create_model(request: CreateModelRequest) -> dict[str, Any]:
             session.rollback()
             raise HTTPException(status_code=409, detail='name already exists') from None
         session.refresh(model)
+        write_audit('semantic_model_created', name)
         return model_to_dict(model)
 
 
@@ -342,16 +443,31 @@ def get_model(model_id: int) -> dict[str, Any]:
 
 
 @app.put('/semantic-models/{model_id}')
-def update_model(model_id: int, request: UpdateModelRequest) -> dict[str, Any]:
+async def update_model(model_id: int, request: UpdateModelRequest) -> dict[str, Any]:
     with SessionLocal() as session:
         model = session.get(SemanticModel, model_id)
         if not model:
             raise HTTPException(status_code=404, detail='semantic model not found')
+        if model.status == 'published' and dependent_models(session, model):
+            raise HTTPException(status_code=409, detail='存在依赖该模型的已发布指标，请先撤销依赖项')
+        was_published = model.status == 'published'
+        yaml_path = semantic_yaml_path(model.name)
         model.config = json.dumps(request.config, ensure_ascii=False)
         if model.status == 'published':
             model.status = 'draft'
+            if yaml_path.exists():
+                yaml_path.unlink()
         model.error_message = None
         session.commit()
+        if was_published:
+            try:
+                await call_service(METRICFLOW_BRIDGE_URL + '/reparse')
+                await call_service(ARTIFACT_PARSER_URL + '/sync')
+            except Exception as exc:
+                model.error_message = str(exc)
+                session.commit()
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+        write_audit('semantic_model_updated', model.name)
         session.refresh(model)
         return model_to_dict(model)
 
@@ -363,11 +479,14 @@ async def publish_model(model_id: int) -> dict[str, Any]:
         if not model:
             raise HTTPException(status_code=404, detail='semantic model not found')
         config = json.loads(model.config)
-        yaml_path = USER_MODELS_DIR / ('semantic_' + model.name + '.yml')
+        if str(config.get('name', '')) != model.name:
+            raise HTTPException(status_code=422, detail='config.name must match model name')
+        yaml_path = semantic_yaml_path(model.name)
+        previous_yaml = yaml_path.read_text(encoding='utf-8') if yaml_path.exists() else None
         try:
             validate_name(model.name)
-            validate_semantic_config(config)
-            yaml_path.write_text(semantic_yaml(config), encoding='utf-8')
+            validate_semantic_config(model.template_id, config)
+            yaml_path.write_text(semantic_config_yaml(model.template_id, config), encoding='utf-8')
             await call_service(METRICFLOW_BRIDGE_URL + '/reparse')
             await call_service(ARTIFACT_PARSER_URL + '/sync')
             model.status = 'published'
@@ -375,6 +494,7 @@ async def publish_model(model_id: int) -> dict[str, Any]:
             model.error_message = None
             session.commit()
             session.refresh(model)
+            write_audit('semantic_model_published', model.name)
             return model_to_dict(model)
         except HTTPException as exc:
             model.status = 'draft'
@@ -383,7 +503,10 @@ async def publish_model(model_id: int) -> dict[str, Any]:
             raise exc
         except Exception as exc:
             if yaml_path.exists():
-                yaml_path.unlink()
+                if previous_yaml is None:
+                    yaml_path.unlink()
+                else:
+                    yaml_path.write_text(previous_yaml, encoding='utf-8')
             model.status = 'draft'
             model.error_message = str(exc)
             session.commit()
@@ -396,7 +519,9 @@ async def unpublish_model(model_id: int) -> dict[str, Any]:
         model = session.get(SemanticModel, model_id)
         if not model:
             raise HTTPException(status_code=404, detail='semantic model not found')
-        yaml_path = USER_MODELS_DIR / ('semantic_' + model.name + '.yml')
+        if dependent_models(session, model):
+            raise HTTPException(status_code=409, detail='存在依赖该模型的已发布指标，请先撤销依赖项')
+        yaml_path = semantic_yaml_path(model.name)
         if yaml_path.exists():
             yaml_path.unlink()
         try:
@@ -411,6 +536,7 @@ async def unpublish_model(model_id: int) -> dict[str, Any]:
         model.error_message = None
         session.commit()
         session.refresh(model)
+        write_audit('semantic_model_unpublished', model.name)
         return model_to_dict(model)
 
 
@@ -420,13 +546,16 @@ async def delete_model(model_id: int) -> dict[str, str]:
         model = session.get(SemanticModel, model_id)
         if not model:
             raise HTTPException(status_code=404, detail='semantic model not found')
-        yaml_path = USER_MODELS_DIR / ('semantic_' + model.name + '.yml')
+        if dependent_models(session, model):
+            raise HTTPException(status_code=409, detail='存在依赖该模型的已发布指标，请先撤销依赖项')
+        yaml_path = semantic_yaml_path(model.name)
         if yaml_path.exists():
             yaml_path.unlink()
             await call_service(METRICFLOW_BRIDGE_URL + '/reparse')
             await call_service(ARTIFACT_PARSER_URL + '/sync')
         session.delete(model)
         session.commit()
+        write_audit('semantic_model_deleted', model.name)
     return {'status': 'deleted'}
 
 
@@ -448,12 +577,13 @@ def auto_draft(request: AutoDraftRequest) -> dict[str, Any]:
             for column in columns:
                 name = column['COLUMN_NAME']
                 data_type = column['DATA_TYPE']
-                if name == 'id' or name.endswith('_id'):
-                    entities.append({'name': name, 'type': 'primary' if name == 'id' else 'foreign', 'expr': name})
+                if column.get('COLUMN_KEY') == 'PRI':
+                    entities.append({'name': name.removesuffix('_id'), 'type': 'primary', 'expr': name})
+                elif name.endswith('_id'):
+                    entities.append({'name': name.removesuffix('_id'), 'type': 'foreign', 'expr': name})
                 elif data_type in ('date', 'datetime', 'timestamp'):
                     dimensions.append({
-                        'name': name, 'type': 'time', 'expr': name,
-                        'type_params': {'time_granularity': 'day'},
+                        'name': name, 'type': 'time', 'expr': name, 'time_granularity': 'day',
                     })
                 elif data_type in ('int', 'bigint', 'smallint', 'decimal', 'float', 'double'):
                     measures.append({'name': name, 'agg': 'sum', 'expr': name})
@@ -466,12 +596,19 @@ def auto_draft(request: AutoDraftRequest) -> dict[str, Any]:
                         dimensions.append({'name': name, 'type': 'categorical', 'expr': name})
     if parts[0] == 'askdata_import':
         model_path = USER_MODELS_DIR / (model_name + '.sql')
-        model_path.write_text('select * from ' + qualified_table + '\n', encoding='utf-8')
+        model_path.write_text(
+            "{{ config(schema='askdata_import') }}\n\nselect * from " + qualified_table + '\n',
+            encoding='utf-8',
+        )
     config = {
+        'name': model_name,
         'model_name': model_name,
-        'source_table': model_name,
-        'source_schema': 'askdata_import' if parts[0] == 'askdata_import' else None,
+        'source_table': qualified_table,
         'description': 'Auto-drafted semantic model',
+        'agg_time_dimension': next(
+            (item['name'] for item in dimensions if item.get('type') == 'time'),
+            '',
+        ),
         'entities': entities,
         'measures': measures,
         'dimensions': dimensions,
@@ -485,7 +622,7 @@ def auto_draft(request: AutoDraftRequest) -> dict[str, Any]:
             session.commit()
             session.refresh(existing)
             return model_to_dict(existing)
-    return create_model(CreateModelRequest(template_id='tpl-01-generic-fact', config=config))
+    return create_model(CreateModelRequest(template_id='semantic-model', config=config))
 
 
 def connection_to_dict(connection: DbConnection, include_password: bool = False) -> dict[str, Any]:

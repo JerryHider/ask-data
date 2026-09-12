@@ -1,0 +1,9 @@
+version: 2
+
+metrics:
+  - name: policy_count
+    label: 保单数
+    description: 去重保单号数量。
+    type: simple
+    type_params:
+      measure: policy_cnt

@@ -3,6 +3,6 @@ askdata:
   outputs:
     dev:
       type: duckdb
-      path: ../data/askdata.duckdb
+      path: ../../data/askdata.duckdb
       schema: askdata
       threads: 1

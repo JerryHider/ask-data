@@ -1,0 +1,9 @@
+version: 2
+
+metrics:
+  - name: current_insured_persons
+    label: 当前在保人数
+    description: 按保单最新生效记录统计的在保人数。
+    type: simple
+    type_params:
+      measure: current_insured_person_cnt

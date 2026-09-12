@@ -1,0 +1,9 @@
+version: 2
+
+metrics:
+  - name: premium_p95
+    label: 订单保费 P95
+    description: 订单保费 P95。
+    type: simple
+    type_params:
+      measure: order_premium_p95

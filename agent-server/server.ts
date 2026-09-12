@@ -19,6 +19,15 @@ import { renderMarkdownTable } from '../extensions/table-render/index.js';
 import { connectorRegistry } from '../extensions/datasource/registry.js';
 import { routingPrompt } from '../extensions/dual-router/prompts.js';
 import { parseDateRange } from './date-range.js';
+import { runFullAgentFlow } from './full-agent.js';
+import type {
+  QueryMetricOptions,
+  QueryResult,
+  SemanticMetric,
+  SemanticModelRecord,
+  SessionMessage,
+  SessionRecord,
+} from './types.js';
 
 const app = express();
 const port = Number(process.env.AGENT_SERVER_PORT ?? 3000);
@@ -29,33 +38,10 @@ const dataIngestUrl = process.env.DATA_INGEST_URL ?? 'http://127.0.0.1:8005';
 const artifactParserUrl = process.env.ARTIFACT_PARSER_URL ?? 'http://127.0.0.1:8001';
 const metricFlowUrl = process.env.METRICFLOW_BRIDGE_URL ?? 'http://127.0.0.1:8002';
 const sandboxUrl = process.env.SQL_SANDBOX_URL ?? 'http://127.0.0.1:8003';
+const agentFlowMode = process.env.AGENT_FLOW_MODE === 'legacy' ? 'legacy' : 'full';
 
 app.use(express.json({ limit: '1mb' }));
 app.use(express.raw({ type: 'multipart/form-data', limit: '51mb' }));
-
-interface SessionMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  text: string;
-  createdAt: string;
-}
-
-interface SessionRecord {
-  id: string;
-  title: string;
-  createdAt: string;
-  updatedAt: string;
-  skillTestId?: string;
-  messages: SessionMessage[];
-}
-
-interface QueryResult {
-  columns: string[];
-  rows: Record<string, unknown>[];
-  rowCount: number;
-  durationMs: number;
-  sql: string;
-}
 
 interface LlmRuntimeConfig {
   id: number;
@@ -77,13 +63,6 @@ interface CompileOptions {
   end_time?: string;
 }
 
-interface SemanticMetric {
-  name: string;
-  description: string;
-  type: string;
-  available_dimensions: string[];
-}
-
 interface SemanticMetricQueryRequest {
   metrics: string[];
   groupBy?: string[];
@@ -93,10 +72,8 @@ interface SemanticMetricQueryRequest {
   user?: string;
 }
 
-interface QueryMetricParameters {
+interface QueryMetricParameters extends QueryMetricOptions {
   metric: string;
-  startTime?: string;
-  endTime?: string;
 }
 
 function now(): string {
@@ -335,16 +312,97 @@ function sendEvent(response: Response, event: string, data: unknown): void {
   response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-function extractMetric(message: string): string | null {
+const PROVINCE_SUFFIXES: Record<string, string> = {
+  北京: '北京市',
+  天津: '天津市',
+  上海: '上海市',
+  重庆: '重庆市',
+  内蒙古: '内蒙古自治区',
+  广西: '广西壮族自治区',
+  西藏: '西藏自治区',
+  宁夏: '宁夏回族自治区',
+  新疆: '新疆维吾尔自治区',
+  香港: '香港特别行政区',
+  澳门: '澳门特别行政区',
+};
+
+const PROVINCES = [
+  '北京', '天津', '河北', '山西', '内蒙古', '辽宁', '吉林', '黑龙江', '上海',
+  '江苏', '浙江', '安徽', '福建', '江西', '山东', '河南', '湖北', '湖南', '广东',
+  '广西', '海南', '重庆', '四川', '贵州', '云南', '西藏', '陕西', '甘肃', '青海',
+  '宁夏', '新疆', '香港', '澳门', '台湾',
+];
+
+function metricScore(message: string, model: SemanticModelRecord): number {
   const normalized = message.toLowerCase();
-  if (normalized.includes('明细') || normalized.includes('sql')) return null;
+  const config = model.config;
+  const aliases = [config.name, config.label, ...(config.synonyms ?? [])]
+    .map((alias) => alias?.trim())
+    .filter(Boolean) as string[];
+
+  return aliases.reduce((score, alias) => {
+    const lowerAlias = alias.toLowerCase();
+    if (normalized.includes(lowerAlias)) {
+      return Math.max(score, alias.length * 2 + 5);
+    }
+    if (normalized.includes(lowerAlias.replace(/_/g, ' '))) {
+      return Math.max(score, alias.length + 3);
+    }
+    return score;
+  }, 0);
+}
+
+async function resolveMetric(message: string): Promise<string | null> {
+  if (/明细|sql/i.test(message)) return null;
   if (/删除|清空|drop|truncate|delete/i.test(message)) return null;
-  if (normalized.includes('refund_rate_local_ratio')) return 'refund_rate_local_ratio';
-  if (normalized.includes('gmv')) return 'gmv';
-  if (normalized.includes('refund') || normalized.includes('退款')) return 'refund_rate';
-  if (normalized.includes('订单数')) return 'order_count';
-  if (normalized.includes('order')) return 'order_count';
-  return null;
+
+  const models = await getRegistryJson<SemanticModelRecord[]>(
+    '/semantic-models?status=published'
+  );
+  const candidates = (models ?? []).filter((model) => model.template_id !== 'semantic-model');
+  const ranked = candidates
+    .map((model) => ({ model, score: metricScore(message, model) }))
+    .filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score);
+
+  return ranked[0]?.model.config.name ?? null;
+}
+
+function quoteMetricFilterValue(value: string): string {
+  return `'${value.replace(/'/g, `''`)}'`;
+}
+
+function parseMetricQueryOptions(message: string): QueryMetricOptions {
+  const dateRange = parseDateRange(message);
+  const provinceMatch = message.match(
+    new RegExp(`(${PROVINCES.join('|')})(?:省|市|自治区|壮族自治区|回族自治区|维吾尔自治区|特别行政区)?`)
+  );
+
+  const groupBy: string[] = [];
+  if (provinceMatch) groupBy.push('insure_unit_province');
+  if (/订单类型|order type/i.test(message)) groupBy.push('order_type');
+  if (/分年份|按年|年度/i.test(message)) groupBy.push('order_effective_year');
+  if (/分月份|按月|月份/i.test(message)) groupBy.push('order_effective_month');
+  if (/产品线|product line/i.test(message)) groupBy.push('product_line');
+  if (/产品名称|产品/i.test(message) && !/产品线/i.test(message)) groupBy.push('product_name');
+  if (/保险公司/i.test(message)) groupBy.push('insurance_company_name');
+  if (/渠道/i.test(message)) groupBy.push('order_channel');
+  if (/部门/i.test(message)) groupBy.push('sub_department');
+  if (/行业/i.test(message)) groupBy.push('industry');
+  if (/省份|地区|区域/i.test(message)) groupBy.push('insure_unit_province');
+  if (/城市/i.test(message)) groupBy.push('insure_unit_city');
+
+  const where = provinceMatch
+    ? `{{ Dimension('order__insure_unit_province') }} = ${quoteMetricFilterValue(
+        PROVINCE_SUFFIXES[provinceMatch[1]] ?? `${provinceMatch[1]}省`
+      )}`
+    : undefined;
+
+  return {
+    ...dateRange,
+    groupBy: groupBy.length ? [...new Set(groupBy)] : undefined,
+    where,
+  };
 }
 
 function isMetricExplanation(message: string): boolean {
@@ -397,24 +455,32 @@ async function searchContext(message: string): Promise<SearchContext> {
 }
 
 async function importedTableFor(table: string): Promise<string> {
-  const models = await getRegistryJson<
-    { config: { source_table?: string; source_schema?: string | null } }[]
-  >('/semantic-models?status=published');
-  const imported = (models ?? []).find(
-    (model) => model.config.source_table === table && model.config.source_schema
+  const models = await getRegistryJson<SemanticModelRecord[]>(
+    '/semantic-models?status=published'
   );
-  return imported ? `${imported.config.source_schema}.${table}` : table;
+  const normalizedTable = table.toLowerCase();
+  const imported = (models ?? []).find((model) => {
+    const sourceTable = model.config.source_table?.toLowerCase();
+    if (!sourceTable) return false;
+    return sourceTable === normalizedTable || sourceTable.endsWith(`.${normalizedTable}`);
+  });
+  if (imported?.config.source_table) return imported.config.source_table;
+
+  const legacy = (models ?? []).find(
+    (model) => model.config.source_table?.toLowerCase() === normalizedTable && model.config.source_schema
+  );
+  return legacy ? `${legacy.config.source_schema}.${legacy.config.source_table}` : table;
 }
 
 async function queryMetric(
   response: Response,
   metric: string,
   user: string,
-  dateRange: { startTime?: string; endTime?: string }
+  options: QueryMetricOptions
 ): Promise<QueryResult | null> {
   sendEvent(response, 'tool_call', {
     name: 'query_metric',
-    input: { metric, ...dateRange },
+    input: { metric, ...options },
   });
   try {
     const compiled = await postJson<CompileOptions, { sql: string }>(
@@ -422,8 +488,10 @@ async function queryMetric(
       {
         metrics: [metric],
         limit: 100,
-        start_time: dateRange.startTime,
-        end_time: dateRange.endTime,
+        group_by: options.groupBy,
+        where: options.where,
+        start_time: options.startTime,
+        end_time: options.endTime,
       }
     );
     const result = await postJson<
@@ -501,9 +569,62 @@ async function runAgentFlow(
   response: Response,
   message: string,
   user: string,
-  session?: SessionRecord
+  session?: SessionRecord,
+  clarification?: {
+    question: string;
+    selectedOption: string;
+  }
 ): Promise<SessionMessage> {
-  const metric = extractMetric(message);
+  if (agentFlowMode === 'full') {
+    if (!session) throw new Error('Session is required in full agent mode');
+    const skills = await activeSkills(session.skillTestId);
+    const matchedSkills = matchingSkills(message, skills);
+    const skillPrompt = matchedSkills
+      .map(
+        (skill) =>
+          '=== 可用 Skills ===\n### Skill: ' +
+          skill.name +
+          '\n触发场景: ' +
+          skill.trigger_keywords.join(',') +
+          '\n' +
+          skill.prompt_addition +
+          '\n允许工具: ' +
+          (skill.allowed_tools.length ? skill.allowed_tools.join(',') : '全部')
+      )
+      .join('\n');
+    const semanticModels =
+      (await getRegistryJson<SemanticModelRecord[]>('/semantic-models?status=published')) ?? [];
+    const llm = await createLlmRuntime();
+    sendEvent(response, 'llm', {
+      provider: llm.providerName,
+      model: llm.modelName,
+      mode: agentFlowMode,
+    });
+    return runFullAgentFlow({
+      response,
+      message,
+      user,
+      session,
+      semanticModels,
+      dependencies: {
+        registryUrl,
+        artifactParserUrl,
+        metricFlowUrl,
+        sandboxUrl,
+      },
+      llm: {
+        model: llm.model,
+        streamFn: llm.models.streamSimple.bind(llm.models),
+        faux: 'faux' in llm ? llm.faux : undefined,
+      },
+      preprocessed: parseMetricQueryOptions(message),
+      fallbackContext: () => searchContext(message),
+      skillPrompt,
+      clarification,
+    });
+  }
+
+  const metric = await resolveMetric(message);
   if (!metric) {
     return runAskFlow(response, message, user, session);
   }
@@ -545,7 +666,7 @@ async function runAgentFlow(
     .join('\n');
   const skillPrefix = matchedSkills.map((skill) => skill.prompt_addition + '\n').join('');
 
-  const dateRange = parseDateRange(message);
+  const metricQueryOptions = parseMetricQueryOptions(message);
   const context = await searchContext(message);
   sendEvent(response, 'tool_call', { name: 'search_schema', input: { query: message } });
   sendEvent(response, 'tool_result', { name: 'search_schema', output: context });
@@ -561,6 +682,8 @@ async function runAgentFlow(
     metric: Type.String(),
     startTime: Type.Optional(Type.String()),
     endTime: Type.Optional(Type.String()),
+    groupBy: Type.Optional(Type.Array(Type.String())),
+    where: Type.Optional(Type.String()),
   });
 
   const tool: AgentTool<typeof queryMetricSchema, QueryResult> = {
@@ -574,6 +697,8 @@ async function runAgentFlow(
         {
           metrics: [params.metric],
           limit: 100,
+          group_by: params.groupBy,
+          where: params.where,
           start_time: params.startTime,
           end_time: params.endTime,
         }
@@ -600,7 +725,7 @@ async function runAgentFlow(
     faux.setResponses([
       () =>
         fauxAssistantMessage(
-          [fauxToolCall('query_metric', { metric, ...dateRange })],
+          [fauxToolCall('query_metric', { metric, ...metricQueryOptions })],
           { stopReason: 'toolUse' }
         ),
       () => fauxAssistantMessage(''),
@@ -664,8 +789,12 @@ async function runAgentFlow(
 
   const promptMessage = [
     `请调用 query_metric 工具查询指标 ${metric}。`,
-    dateRange.startTime ? `开始时间：${dateRange.startTime}` : '',
-    dateRange.endTime ? `结束时间：${dateRange.endTime}` : '',
+    metricQueryOptions.startTime ? `开始时间：${metricQueryOptions.startTime}` : '',
+    metricQueryOptions.endTime ? `结束时间：${metricQueryOptions.endTime}` : '',
+    metricQueryOptions.groupBy?.length
+      ? `分组维度：${metricQueryOptions.groupBy.join(',')}`
+      : '',
+    metricQueryOptions.where ? `过滤条件：${metricQueryOptions.where}` : '',
   ]
     .filter(Boolean)
     .join('\n');
@@ -685,8 +814,8 @@ async function runAskFlow(
   user: string,
   session?: SessionRecord
 ): Promise<SessionMessage> {
-  const metric = extractMetric(message);
-  const dateRange = parseDateRange(message);
+  const metric = await resolveMetric(message);
+  const metricQueryOptions = parseMetricQueryOptions(message);
   let result: QueryResult | null = null;
   const skills = await activeSkills(session?.skillTestId);
   const matchedSkills = matchingSkills(message, skills);
@@ -726,7 +855,7 @@ async function runAskFlow(
     const sql = `SELECT * FROM ${physicalTable}${where} ORDER BY id DESC LIMIT ${limit}`;
     result = await executeSql(response, sql, user);
   } else if (metric) {
-    result = await queryMetric(response, metric, user, dateRange);
+    result = await queryMetric(response, metric, user, metricQueryOptions);
   }
 
   let text: string;
@@ -861,6 +990,9 @@ app.delete('/api/sessions/:id', async (request, response) => {
 
 app.post('/api/message', async (request, response) => {
   const body = request.body as { sessionId?: string; message?: string; user?: string };
+  const clarification = (request.body as {
+    clarification?: { question?: unknown; selectedOption?: unknown };
+  }).clarification;
   if (!body.sessionId || !body.message?.trim()) {
     response.status(400).json({ message: 'sessionId and message are required' });
     return;
@@ -889,7 +1021,13 @@ app.post('/api/message', async (request, response) => {
       response,
       body.message,
       body.user ?? 'admin',
-      session
+      session,
+      clarification?.question && clarification.selectedOption
+        ? {
+            question: String(clarification.question),
+            selectedOption: String(clarification.selectedOption),
+          }
+        : undefined
     );
     session.messages.push(userMessage, assistantMessage);
     if (session.title === '新任务') session.title = userMessage.text.slice(0, 20);

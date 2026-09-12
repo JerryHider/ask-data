@@ -7,3 +7,6 @@ metrics:
     type: simple
     type_params:
       measure: order_cnt
+    config:
+      meta:
+        synonyms: [订单数量, 订单总量]

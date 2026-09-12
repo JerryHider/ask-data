@@ -12,3 +12,6 @@ metrics:
         alias: premium_gd
       denominator: premium
     filter: "{{ Dimension('insurance_order__order_type') }} = '投保'"
+    config:
+      meta:
+        synonyms: [广东保费贡献度, 广东保费比例]

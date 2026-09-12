@@ -11,6 +11,9 @@ data/audit.db
 data/ingest.db
 data/auth.db
 data/sessions/*.json
+data/rollouts/
+data/regression/
+data/models/
 agent-server/data/
 __pycache__/
 .venv/

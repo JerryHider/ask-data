@@ -13,3 +13,6 @@ metrics:
         - name: premium
           offset_window: 1 year
           alias: previous
+    config:
+      meta:
+        synonyms: [保费同比, 保费增长率]

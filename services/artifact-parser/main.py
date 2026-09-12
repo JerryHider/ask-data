@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -18,9 +19,12 @@ MANIFEST_PATH = DBT_PROJECT / "target" / "manifest.json"
 SEMANTIC_MANIFEST_PATH = DBT_PROJECT / "target" / "semantic_manifest.json"
 CHROMA_PATH = DBT_PROJECT.parent / "data" / "chroma"
 MODEL_NAME = "BAAI/bge-m3"
+MODEL_PATH = os.environ.get("BGE_MODEL_PATH", "")
+MODEL_PATH_READY = bool(MODEL_PATH) and (Path(MODEL_PATH) / "config.json").is_file()
 
 app = FastAPI(title="AskData artifact parser")
 embedder: SentenceTransformer | None = None
+embedding_model: str | None = None
 client: chromadb.ClientAPI | None = None
 last_sync: str | None = None
 model_count = 0
@@ -49,12 +53,18 @@ class HashEmbedder:
 
 
 def get_embedder() -> SentenceTransformer | HashEmbedder:
-    global embedder
+    global embedder, embedding_model
     if embedder is None:
         try:
-            embedder = SentenceTransformer(MODEL_NAME, local_files_only=True)
-        except OSError:
+            embedder = (
+                SentenceTransformer(MODEL_PATH, local_files_only=True)
+                if MODEL_PATH_READY
+                else SentenceTransformer(MODEL_NAME, local_files_only=True)
+            )
+            embedding_model = "BAAI/bge-m3 (local)" if MODEL_PATH_READY else "BAAI/bge-m3"
+        except (OSError, ValueError):
             embedder = HashEmbedder()
+            embedding_model = "hash-fallback"
     return embedder
 
 
@@ -71,13 +81,26 @@ def reset_collection(name: str) -> chromadb.Collection:
         database.delete_collection(name)
     except Exception:
         pass
-    return database.get_or_create_collection(name)
+    return database.get_or_create_collection(
+        name,
+        metadata={"hnsw:space": "cosine"},
+    )
 
 
 def index_items(collection: chromadb.Collection, items: list[dict[str, Any]]) -> None:
     if not items:
         return
-    texts = [item["description"] for item in items]
+    texts = [
+        "\n".join(
+            [
+                f"名称：{item['name']}",
+                f"标签：{item.get('metadata', {}).get('label', item['name'])}",
+                item.get("metadata", {}).get("description") or item["description"],
+                f"同义词：{item.get('metadata', {}).get('synonyms', '')}",
+            ]
+        )
+        for item in items
+    ]
     encoded = get_embedder().encode(texts, show_progress_bar=False)
     embeddings = encoded.tolist() if hasattr(encoded, "tolist") else encoded
     collection.add(
@@ -120,6 +143,7 @@ def query_collection(name: str, request: SearchRequest) -> list[dict[str, Any]]:
                 "description": document,
                 "metadata": metadata,
                 "distance": distance,
+                "similarity": 1 - distance,
             }
         )
     return output
@@ -131,6 +155,7 @@ def health() -> dict[str, Any]:
         "last_sync": last_sync,
         "model_count": model_count,
         "metric_count": metric_count,
+        "embedding_model": embedding_model,
     }
 
 

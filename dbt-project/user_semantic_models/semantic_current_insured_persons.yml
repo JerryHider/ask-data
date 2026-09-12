@@ -7,3 +7,6 @@ metrics:
     type: simple
     type_params:
       measure: current_insured_person_cnt
+    config:
+      meta:
+        synonyms: [在保人数, 当前在保客户数]

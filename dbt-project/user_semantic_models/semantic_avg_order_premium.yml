@@ -7,3 +7,6 @@ metrics:
     type: simple
     type_params:
       measure: avg_order_premium
+    config:
+      meta:
+        synonyms: [平均订单保费, 订单平均保费]

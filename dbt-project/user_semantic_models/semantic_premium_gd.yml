@@ -8,3 +8,6 @@ metrics:
     type_params:
       measure: total_premium
     filter: "{{ Dimension('insurance_order__insure_unit_province') }} = '广东省'"
+    config:
+      meta:
+        synonyms: [广东省保费, 广东地区保费]

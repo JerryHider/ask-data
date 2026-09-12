@@ -7,3 +7,6 @@ metrics:
     type: simple
     type_params:
       measure: reduct_person_cnt
+    config:
+      meta:
+        synonyms: [减保人次, 减少人数]

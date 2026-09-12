@@ -13,3 +13,6 @@ metrics:
         - name: premium
           offset_to_grain: month
           alias: month_start
+    config:
+      meta:
+        synonyms: [保费较月初变化, 环月初保费差]

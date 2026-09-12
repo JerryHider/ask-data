@@ -7,3 +7,6 @@ metrics:
     type: simple
     type_params:
       measure: insured_person_cnt
+    config:
+      meta:
+        synonyms: [投保人次, 投保客户数]

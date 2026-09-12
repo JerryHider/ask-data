@@ -12,3 +12,6 @@ metrics:
           alias: additions
         - name: reduct_persons
           alias: reductions
+    config:
+      meta:
+        synonyms: [净增人数, 净增投保人]

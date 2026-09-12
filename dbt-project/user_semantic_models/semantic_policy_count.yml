@@ -7,3 +7,6 @@ metrics:
     type: simple
     type_params:
       measure: policy_cnt
+    config:
+      meta:
+        synonyms: [保单数量, 保单总量]

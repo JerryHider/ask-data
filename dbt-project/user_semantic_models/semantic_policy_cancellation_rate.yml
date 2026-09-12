@@ -17,3 +17,6 @@ metrics:
         constant_properties:
           - base_property: product
             conversion_property: product
+    config:
+      meta:
+        synonyms: [退保率, 保单退保率]

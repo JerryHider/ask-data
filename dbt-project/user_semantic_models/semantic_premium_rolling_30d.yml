@@ -9,3 +9,6 @@ metrics:
       measure: total_premium
       cumulative_type_params:
         window: 30 days
+    config:
+      meta:
+        synonyms: [近30天保费, 滚动保费]

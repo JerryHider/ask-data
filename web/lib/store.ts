@@ -23,6 +23,11 @@ export interface ChatMessage {
   toolOutput?: Record<string, unknown>;
 }
 
+export interface ClarificationReply {
+  question: string;
+  selectedOption: string;
+}
+
 export interface SessionSummary {
   id: string;
   title: string;
@@ -47,7 +52,7 @@ interface AskDataState {
   createSession: () => Promise<void>;
   selectSession: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
-  sendMessage: (message: string) => Promise<void>;
+  sendMessage: (message: string, clarification?: ClarificationReply) => Promise<void>;
   setResultTab: (tab: 'table' | 'changes' | 'logs') => void;
   startSkillTest: (skill: { id: number; name: string }) => Promise<void>;
   exitSkillTest: () => Promise<void>;
@@ -133,7 +138,7 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
     }
     await get().loadSessions();
   },
-  sendMessage: async (message) => {
+  sendMessage: async (message, clarification) => {
     const { activeSessionId, streaming } = get();
     if (!activeSessionId || streaming || !message.trim()) return;
     const userMessage = { id: createId(), role: 'user' as const, text: message.trim() };
@@ -141,8 +146,8 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
     try {
       const response = await fetch('/api/message', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ sessionId: activeSessionId, message }),
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: activeSessionId, message, clarification }),
       });
       await parseSseStream(response, (event, data) => {
         const payload = data as Record<string, unknown>;

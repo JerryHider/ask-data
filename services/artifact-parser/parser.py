@@ -119,8 +119,10 @@ def parse_metrics(semantic_manifest_path: Path) -> list[dict[str, Any]]:
                 "description": description,
                 "metadata": {
                     "type": metric.get("type", ""),
+                    "label": metric.get("label") or metric.get("name", ""),
                     "description": metric.get("description") or "",
                     "available_dimensions": available_dimensions,
+                    "synonyms": (metric.get("config", {}).get("meta", {}) or {}).get("synonyms", []),
                 },
             }
         )

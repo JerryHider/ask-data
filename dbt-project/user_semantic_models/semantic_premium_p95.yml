@@ -7,3 +7,6 @@ metrics:
     type: simple
     type_params:
       measure: order_premium_p95
+    config:
+      meta:
+        synonyms: [保费P95, 订单保费分位数]

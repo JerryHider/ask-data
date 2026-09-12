@@ -46,6 +46,14 @@ semantic_models:
         description: 订单生效时间，默认统计时间轴。
         type_params:
           time_granularity: day
+      - name: order_effective_year
+        type: categorical
+        description: 订单生效年份。
+        expr: DATE_FORMAT(order_effective_time, '%Y')
+      - name: order_effective_month
+        type: categorical
+        description: 订单生效月份。
+        expr: DATE_FORMAT(order_effective_time, '%Y-%m')
       - name: order_expiration_time
         type: time
         type_params:

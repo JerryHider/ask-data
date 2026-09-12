@@ -10,4 +10,4 @@ metrics:
     config:
       meta:
         owner: data@company.com
-        synonyms: [保费收入, 总保费, 承保保费]
+        synonyms: [保费收入, 总保费, 保费总额, 承保保费]

@@ -8,3 +8,6 @@ metrics:
     type_params:
       numerator: premium
       denominator: policy_count
+    config:
+      meta:
+        synonyms: [平均单保费, 每单保费]

@@ -18,7 +18,9 @@ export default function ClarifyCard({
           <button
             key={option}
             type="button"
-            onClick={() => void sendMessage(option)}
+            onClick={() =>
+              void sendMessage(option, { question, selectedOption: option })
+            }
             className="rounded border border-amber-400 bg-white px-3 py-1 text-xs text-amber-800"
           >
             {option}

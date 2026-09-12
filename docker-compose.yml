@@ -31,9 +31,11 @@ services:
       dockerfile: services/artifact-parser/Dockerfile
     environment:
       CHROMA_URL: http://chroma:8000
+      BGE_MODEL_PATH: /app/models/bge-m3
     volumes:
       - ./dbt-project:/app/dbt-project
       - ./data/chroma:/app/data/chroma
+      - ./data/models/bge-m3:/app/models/bge-m3
     healthcheck:
       test: [CMD, python, -c, import urllib.request; urllib.request.urlopen('http://localhost:8001/health')]
       interval: 10s
@@ -127,8 +129,10 @@ services:
       SQL_SANDBOX_URL: http://sandbox:8003
       REGISTRY_URL: http://registry:8004
       DATA_INGEST_URL: http://data-ingest:8005
+      AGENT_FLOW_MODE: ${AGENT_FLOW_MODE:-full}
     volumes:
       - ./data/sessions:/app/data/sessions
+      - ./data/rollouts:/app/data/rollouts
     depends_on:
       artifact-parser:
         condition: service_healthy

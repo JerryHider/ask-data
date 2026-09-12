@@ -137,7 +137,7 @@ def run_command(arguments: list[str]) -> str:
     if result.returncode != 0:
         message = (result.stderr or result.stdout or "MetricFlow failed").strip()
         raise MetricFlowError(
-            "MetricFlow ????",
+            f"MetricFlow failed: {message[:1000]}",
             "??????????????????????????? list_metrics/get_dimensions ???",
         ) from RuntimeError(message)
     return result.stdout.strip()

@@ -15,3 +15,6 @@ metrics:
           alias: previous
           offset_window: 1 year
           filter: "{{ Dimension('insurance_order__insure_unit_province') }} = '广东省'"
+    config:
+      meta:
+        synonyms: [广东保费同比, 广东保费增速]

@@ -88,19 +88,32 @@ export function normalizeMetricFlowWhere(
 ): string | undefined {
   if (!where) return undefined;
   const allowed = new Set(allowedDimensions);
-  return where.replace(
-    /([A-Za-z_][A-Za-z0-9_]*)\s*={1,2}\s*('(?:[^']|'')*'|"(?:[^"]|"")*")/g,
-    (_match, dimension: string, value: string) => {
-      const qualified = allowed.has(dimension)
-        ? dimension
-        : [...allowed].find((candidate) => candidate.endsWith(`__${dimension}`));
-      if (!qualified) {
-        throw new Error(
-          `where 中的维度不在白名单：${dimension}；可用维度：${[...allowed].join(', ')}`
-        );
-      }
-      return `{{ Dimension('${qualified}') }} = ${value}`;
+  const resolveDimension = (dimension: string): string => {
+    if (allowed.has(dimension)) return dimension;
+    const fullyQualified = [...allowed].find((candidate) =>
+      candidate.endsWith(`__${dimension}`)
+    );
+    if (fullyQualified) return fullyQualified;
+    const isQualifiedAlias = [...allowed].some((candidate) =>
+      dimension.endsWith(`__${candidate}`)
+    );
+    if (isQualifiedAlias) return dimension;
+    {
+      throw new Error(
+        `where 中的维度不在白名单：${dimension}；可用维度：${[...allowed].join(', ')}`
+      );
     }
+    return dimension;
+  };
+  const withJinjaDimensions = where.replace(
+    /\{\{\s*Dimension\(\s*(['"])([^'"]+)\1\s*\)\s*\}\}/g,
+    (_match, _quote: string, dimension: string) =>
+      `{{ Dimension('${resolveDimension(dimension)}') }}`
+  );
+  return withJinjaDimensions.replace(
+    /([A-Za-z_][A-Za-z0-9_]*)\s*={1,2}\s*('(?:[^']|'')*'|"(?:[^"]|"")*")/g,
+    (_match, dimension: string, value: string) =>
+      `{{ Dimension('${resolveDimension(dimension)}') }} = ${value}`
   );
 }
 

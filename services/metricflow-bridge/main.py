@@ -251,6 +251,21 @@ def qualified_group_by(
     return requested
 
 
+def qualified_where(
+    semantic_manifest: dict[str, Any], metric_name: str, where: str
+) -> str:
+    def replace_dimension(match: re.Match[str]) -> str:
+        dimension = match.group(2)
+        qualified = qualified_group_by(semantic_manifest, metric_name, dimension)
+        return f"{{{{ Dimension('{qualified}') }}}}"
+
+    return re.sub(
+        r"\{\{\s*Dimension\(\s*(['\"])([^'\"]+)\1\s*\)\s*\}\}",
+        replace_dimension,
+        where,
+    )
+
+
 @app.get("/health")
 def health() -> dict[str, Any]:
     return {
@@ -299,7 +314,15 @@ def compile_sql(request: CompileRequest) -> dict[str, Any]:
         ]
         arguments.extend(["--group-by", ",".join(qualified)])
     if request.where:
-        arguments.extend(["--where", request.where])
+        semantic_manifest = load_semantic_manifest()
+        arguments.extend(
+            [
+                "--where",
+                qualified_where(
+                    semantic_manifest, request.metrics[0], request.where
+                ),
+            ]
+        )
     if request.start_time:
         arguments.extend(["--start-time", request.start_time])
     if request.end_time:

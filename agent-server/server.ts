@@ -240,13 +240,19 @@ function registryProvider(config: LlmRuntimeConfig): Provider {
     api: 'openai-completions',
     provider: providerId,
     baseUrl,
-    reasoning: false,
+    reasoning: true,
     input: ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 128000,
     maxTokens: config.max_tokens,
     samplingParams: { temperature: config.temperature },
-    compat: { supportsDeveloperRole: false, maxTokensField: 'max_tokens' },
+    thinkingLevelMap: { low: 'low' },
+    compat: {
+      supportsDeveloperRole: false,
+      maxTokensField: 'max_tokens',
+      thinkingFormat: 'zai',
+      supportsReasoningEffort: true,
+    },
   };
   return createProvider<'openai-completions'>({
     id: providerId,

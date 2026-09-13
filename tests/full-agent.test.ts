@@ -63,4 +63,17 @@ describe('metric flow where normalization', () => {
     const where = "{{ Dimension('order__insure_unit_province') }} = '湖北省'";
     expect(normalizeMetricFlowWhere(where, ['order__insure_unit_province'])).toBe(where);
   });
+
+  it('keeps short and fully qualified dimension names inside Jinja filters', () => {
+    expect(
+      normalizeMetricFlowWhere("{{ Dimension('insure_unit_province') }} = '湖北省'", [
+        'insure_unit_province',
+      ])
+    ).toBe("{{ Dimension('insure_unit_province') }} = '湖北省'");
+    expect(
+      normalizeMetricFlowWhere("{{ Dimension('order__insure_unit_province') }} = '湖北省'", [
+        'insure_unit_province',
+      ])
+    ).toBe("{{ Dimension('order__insure_unit_province') }} = '湖北省'");
+  });
 });

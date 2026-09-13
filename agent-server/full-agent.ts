@@ -271,6 +271,7 @@ export async function runFullAgentFlow(request: FullAgentRequest): Promise<Sessi
     initialState: {
       systemPrompt: fullAgentSystemPrompt(skillPrompt),
       model: llm.model,
+      thinkingLevel: 'low',
       tools,
       messages: toAgentMessages(session.messages),
     },
@@ -385,8 +386,13 @@ export async function runFullAgentFlow(request: FullAgentRequest): Promise<Sessi
   }
 
   if (hitTurnLimit) {
-    const notice = `Agent 已达到 ${maxTurns} 轮上限，本轮未完成全部查询。请补充表名、字段或口径后继续。`;
-    finalText = finalText ? `${finalText}\n\n${notice}` : notice;
+    const tableText = tableResult
+      ? `${renderMarkdownTable(tableResult)}\n\n[来源：${resultSource}]`
+      : '';
+    const notice = tableResult
+      ? `Agent 已达到 ${maxTurns} 轮上限，以下为已获取的查询结果；如需继续完整分析，请补充表名、字段或口径。`
+      : `Agent 已达到 ${maxTurns} 轮上限，本轮未完成全部查询。请补充表名、字段或口径后继续。`;
+    finalText = [finalText, tableText, notice].filter(Boolean).join('\n\n');
     emit('message', { text: finalText });
   }
 

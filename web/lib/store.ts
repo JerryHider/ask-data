@@ -41,6 +41,8 @@ interface AskDataState {
   sessions: SessionSummary[];
   messages: ChatMessage[];
   streaming: boolean;
+  reasoning: string;
+  streamStatus: string | null;
   tableResult: { title: string; queryResult: QueryResult } | null;
   resultOpen: boolean;
   resultTab: 'table' | 'changes' | 'logs';
@@ -93,6 +95,8 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
   sessions: [],
   messages: [],
   streaming: false,
+  reasoning: '',
+  streamStatus: null,
   tableResult: null,
   resultOpen: false,
   resultTab: 'table',
@@ -114,14 +118,21 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
     });
     if (!response.ok) return;
     const data = (await response.json()) as { sessionId: string };
-    set({ activeSessionId: data.sessionId, messages: [], tableResult: null, resultOpen: false });
+    set({
+      activeSessionId: data.sessionId,
+      messages: [],
+      tableResult: null,
+      resultOpen: false,
+      reasoning: '',
+      streamStatus: null,
+    });
     await get().loadSessions();
   },
   selectSession: async (sessionId) => {
     const response = await fetch(`/api/sessions/${sessionId}/messages`);
     if (!response.ok) return;
     const messages = (await response.json()) as { id: string; role: ChatRole; text: string }[];
-    set({ activeSessionId: sessionId, messages });
+    set({ activeSessionId: sessionId, messages, reasoning: '', streamStatus: null });
   },
   deleteSession: async (sessionId) => {
     if (get().streaming) return;
@@ -134,6 +145,8 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
         tableResult: null,
         resultOpen: false,
         logs: [],
+        reasoning: '',
+        streamStatus: null,
       });
     }
     await get().loadSessions();
@@ -142,17 +155,34 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
     const { activeSessionId, streaming } = get();
     if (!activeSessionId || streaming || !message.trim()) return;
     const userMessage = { id: createId(), role: 'user' as const, text: message.trim() };
-    set({ messages: [...get().messages, userMessage], streaming: true });
+    set({
+      messages: [...get().messages, userMessage],
+      streaming: true,
+      reasoning: '',
+      streamStatus: null,
+    });
     try {
       const response = await fetch('/api/message', {
         method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId: activeSessionId, message, clarification }),
+      body: JSON.stringify({
+        conversation_id: activeSessionId,
+        sessionId: activeSessionId,
+        message,
+        clarification,
+      }),
       });
       await parseSseStream(response, (event, data) => {
         const payload = data as Record<string, unknown>;
-        if (event === 'message') {
+        if (event === 'reasoning') {
+          set({ reasoning: get().reasoning + String(payload.delta ?? '') });
+        } else if (event === 'heartbeat') {
+          set({ streamStatus: String(payload.text ?? '') });
+        } else if (event === 'done') {
+          set({ streamStatus: null });
+        } else if (event === 'message') {
           set({
+            streamStatus: null,
             messages: [
               ...get().messages,
               { id: createId(), role: 'assistant', text: String(payload.text ?? '') },
@@ -160,6 +190,7 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
           });
         } else if (event === 'tool_call') {
           set({
+            streamStatus: null,
             logs: [...get().logs, `tool_call: ${String(payload.name)}`],
             messages: [
               ...get().messages,
@@ -193,6 +224,7 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
           });
         } else if (event === 'clarify') {
           set({
+            streamStatus: null,
             messages: [
               ...get().messages,
               {
@@ -205,8 +237,20 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
           });
         }
       });
+    } catch (error) {
+      set({
+        streamStatus: null,
+        messages: [
+          ...get().messages,
+          {
+            id: createId(),
+            role: 'assistant' as const,
+            text: `请求失败：${(error as Error).message || '未知错误'}`,
+          },
+        ],
+      });
     } finally {
-      set({ streaming: false });
+      set({ streaming: false, streamStatus: null });
       await get().loadSessions();
     }
   },

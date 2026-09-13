@@ -27,7 +27,7 @@ async function runCase(message) {
   const response = await fetch(`${baseUrl}/api/message`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sessionId, message }),
+    body: JSON.stringify({ conversation_id: sessionId, sessionId, message }),
   });
   if (!response.body) throw new Error('message stream is empty');
 

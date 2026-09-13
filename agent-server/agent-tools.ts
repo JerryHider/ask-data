@@ -82,6 +82,28 @@ const clarifySchema = Type.Object({
   context: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 });
 
+export function normalizeMetricFlowWhere(
+  where: string | undefined,
+  allowedDimensions: Iterable<string>
+): string | undefined {
+  if (!where) return undefined;
+  const allowed = new Set(allowedDimensions);
+  return where.replace(
+    /([A-Za-z_][A-Za-z0-9_]*)\s*={1,2}\s*('(?:[^']|'')*'|"(?:[^"]|"")*")/g,
+    (_match, dimension: string, value: string) => {
+      const qualified = allowed.has(dimension)
+        ? dimension
+        : [...allowed].find((candidate) => candidate.endsWith(`__${dimension}`));
+      if (!qualified) {
+        throw new Error(
+          `where 中的维度不在白名单：${dimension}；可用维度：${[...allowed].join(', ')}`
+        );
+      }
+      return `{{ Dimension('${qualified}') }} = ${value}`;
+    }
+  );
+}
+
 export function createAgentTools(
   dependencies: ToolDependencies,
   emit: (event: string, data: unknown) => void
@@ -214,7 +236,7 @@ export function createAgentTools(
       >(`${dependencies.metricFlowUrl}/compile_sql`, {
         metrics: [params.metric],
         group_by: params.dimensions,
-        where: params.where,
+        where: normalizeMetricFlowWhere(params.where, allowed),
         limit: params.limit ?? 100,
         start_time: params.start_time,
         end_time: params.end_time,

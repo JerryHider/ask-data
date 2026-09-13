@@ -3,6 +3,7 @@ import type { Response } from 'express';
 import {
   Agent,
   type AgentEvent,
+  type AgentMessage,
   type AgentOptions,
   type AgentState,
 } from '@earendil-works/pi-agent-core';
@@ -44,8 +45,28 @@ export interface FullAgentRequest {
   };
 }
 
+export function toAgentMessages(history: SessionMessage[]): AgentMessage[] {
+  return history.map((message) => {
+    const timestamp = Date.parse(message.createdAt);
+    const safeTimestamp = Number.isFinite(timestamp) ? timestamp : Date.now();
+    if (message.role === 'assistant') {
+      return fauxAssistantMessage(message.text, { timestamp: safeTimestamp });
+    }
+    return {
+      role: 'user',
+      content: message.text,
+      timestamp: safeTimestamp,
+    };
+  });
+}
+
 export function fullAgentSystemPrompt(skillPrompt = ''): string {
   return [
+    '遇到以下情况时，立即停止推理并调用 clarify：',
+    '- 范围歧义：用户问“分区域/分城市”时，上一轮实体的区域内细分（如湖北各市州）与实体外扩展（如全国各区域）均合理；',
+    '- 粒度歧义：“按月/按年”与上一轮时间语境冲突；',
+    '- 维度继承 vs 重置：省略指代（“那安徽呢”）与代词指代（“该省”）的解析。',
+    'clarify 选项必须是你权衡中的候选项（如：湖北省内各市州 / 全国各区域），不要在 thinking 中反复权衡后自行裁决。',
     '你是企业智能问数助手。所有问题都必须通过工具闭环完成，不允许编造数据。',
     '标准流程：search_metrics -> query_metric；未命中或需临时分析时 search_context -> run_sql；仅语义近似或口径冲突时先 clarify。',
     'query_metric 的 dimensions 必须来自工具返回的维度白名单；不要绕过它手写标准指标 SQL。',
@@ -53,6 +74,9 @@ export function fullAgentSystemPrompt(skillPrompt = ''): string {
     '结果必须说明来源：dbt 标准指标、临时 SQL 查询或知识库。',
     '如果指标字面或 synonyms 精确命中，并且预处理已给出过滤/分组条件，应直接 query_metric；未指定时间默认查询全部历史并在结果中说明。',
     '如果指标只是语义近似命中（例如“营收”近似“保费收入”），必须先 clarify 确认业务口径。',
+    '处理包含代词、省略主语或省略时间的问题时，必须先从完整对话历史解析出明确的指标实体、过滤条件和时间范围，再把解析结果应用到工具参数。',
+    '只有当当前问题和完整对话历史都无法确定必要实体或时间范围时，才调用 clarify；不要在历史已有答案时重复追问。',
+    "query_metric 的 where 必须使用原生 Jinja 语法，例如 {{ Dimension('order__insure_unit_province') }} = '湖北省'；不要使用裸字段或 ==。",
     skillPrompt,
   ]
     .filter(Boolean)
@@ -90,10 +114,28 @@ function rolloutPayload(event: AgentEvent): unknown {
       updateType: event.assistantMessageEvent.type,
     };
   }
-  if (event.type === 'turn_end') {
+  if (event.type === 'message_end') {
+    const message = event.message as {
+      stopReason?: unknown;
+      usage?: { reasoning?: number; output?: number };
+    };
     return {
       type: event.type,
-      stopReason: (event.message as { stopReason?: unknown }).stopReason,
+      stopReason: message.stopReason,
+      thinkingTokens: message.usage?.reasoning,
+      outputTokens: message.usage?.output,
+    };
+  }
+  if (event.type === 'turn_end') {
+    const message = event.message as {
+      stopReason?: unknown;
+      usage?: { reasoning?: number; output?: number };
+    };
+    return {
+      type: event.type,
+      stopReason: message.stopReason,
+      thinkingTokens: message.usage?.reasoning,
+      outputTokens: message.usage?.output,
       toolNames: event.toolResults.map((result) => result.toolName),
     };
   }
@@ -121,10 +163,53 @@ export async function runFullAgentFlow(request: FullAgentRequest): Promise<Sessi
     clarification,
   } = request;
   const requestId = randomUUID();
-  const emit = (event: string, data: unknown): void => {
+  const requestStartedAt = Date.now();
+  let lastOutputAt = Date.now();
+  const writeSse = (event: string, data: unknown): void => {
     response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+  const emit = (event: string, data: unknown): void => {
+    lastOutputAt = Date.now();
+    writeSse(event, data);
     void appendRolloutEvent(session.id, requestId, event, data).catch(() => undefined);
   };
+  const emitSse = (event: string, data: unknown): void => {
+    lastOutputAt = Date.now();
+    writeSse(event, data);
+  };
+
+  let reasoningBuffer = '';
+  let reasoningSeq = 0;
+  let reasoningTimer: ReturnType<typeof setTimeout> | undefined;
+  const flushReasoning = (): void => {
+    if (reasoningTimer) {
+      clearTimeout(reasoningTimer);
+      reasoningTimer = undefined;
+    }
+    if (!reasoningBuffer) return;
+    const delta = reasoningBuffer;
+    reasoningBuffer = '';
+    reasoningSeq += 1;
+    emitSse('reasoning', { seq: reasoningSeq, delta });
+  };
+  const queueReasoningDelta = (delta: string): void => {
+    reasoningBuffer += delta;
+    if (!reasoningTimer) {
+      reasoningTimer = setTimeout(() => {
+        reasoningTimer = undefined;
+        flushReasoning();
+      }, 200);
+    }
+  };
+
+  const heartbeat = setInterval(() => {
+    if (Date.now() - lastOutputAt < 3000) return;
+    const elapsedSeconds = Math.floor((Date.now() - requestStartedAt) / 1000);
+    writeSse('heartbeat', {
+      text: `正在分析…（已 ${elapsedSeconds} 秒）`,
+      elapsedSeconds,
+    });
+  }, 1000);
 
   emit('request', { message, user, mode: 'full' });
 
@@ -151,8 +236,12 @@ export async function runFullAgentFlow(request: FullAgentRequest): Promise<Sessi
   let resultSource = '';
   let clarificationRequested = false;
   let turnCount = 0;
+  let toolCallCount = 0;
   let hitTurnLimit = false;
+  let hitLengthLimit = false;
+  let lengthThinkingTokens = 0;
   let agentError = '';
+  let terminalStopReason = '';
 
   if (llm.faux) {
     llm.faux.setResponses([
@@ -183,7 +272,9 @@ export async function runFullAgentFlow(request: FullAgentRequest): Promise<Sessi
       systemPrompt: fullAgentSystemPrompt(skillPrompt),
       model: llm.model,
       tools,
+      messages: toAgentMessages(session.messages),
     },
+    sessionId: session.conversationId ?? session.id,
     streamFn: llm.streamFn,
     shouldStopAfterTurn: () => {
       turnCount += 1;
@@ -208,7 +299,17 @@ export async function runFullAgentFlow(request: FullAgentRequest): Promise<Sessi
     void appendRolloutEvent(session.id, requestId, event.type, rolloutPayload(event)).catch(
       () => undefined
     );
+    if (event.type === 'message_update') {
+      lastOutputAt = Date.now();
+      if (event.assistantMessageEvent.type === 'thinking_delta') {
+        queueReasoningDelta(String(event.assistantMessageEvent.delta ?? ''));
+      }
+    }
+    if (event.type === 'message_end' || event.type === 'agent_end') {
+      flushReasoning();
+    }
     if (event.type === 'tool_execution_start') {
+      toolCallCount += 1;
       emit('tool_call', { name: event.toolName, input: event.args });
     } else if (event.type === 'tool_execution_end') {
       const result = event.result as
@@ -247,6 +348,20 @@ export async function runFullAgentFlow(request: FullAgentRequest): Promise<Sessi
       }
     } else if (event.type === 'message_end') {
       if ((event.message as { role?: unknown }).role !== 'assistant') return;
+      const message = event.message as {
+        content?: { type?: string }[];
+        stopReason?: unknown;
+        usage?: { reasoning?: number };
+      };
+      terminalStopReason = message.stopReason ? String(message.stopReason) : terminalStopReason;
+      const hasToolCalls = (message.content ?? []).some(
+        (block) => block.type === 'toolCall'
+      );
+      if (message.stopReason === 'length' && !hasToolCalls) {
+        hitLengthLimit = true;
+        lengthThinkingTokens = message.usage?.reasoning ?? 0;
+        return;
+      }
       const text = messageText(event.message).trim();
       if (text) {
         finalText = text;
@@ -255,7 +370,19 @@ export async function runFullAgentFlow(request: FullAgentRequest): Promise<Sessi
     }
   });
 
-  await agent.prompt(initialContext);
+  try {
+    await agent.prompt(initialContext);
+  } catch (error) {
+    agentError = (error as Error).message || '模型调用异常';
+  } finally {
+    clearInterval(heartbeat);
+    flushReasoning();
+  }
+
+  if (hitLengthLimit) {
+    finalText = '推理预算耗尽，请简化问题或稍后重试。';
+    emit('message', { text: finalText });
+  }
 
   if (hitTurnLimit) {
     const notice = `Agent 已达到 ${maxTurns} 轮上限，本轮未完成全部查询。请补充表名、字段或口径后继续。`;
@@ -273,10 +400,10 @@ export async function runFullAgentFlow(request: FullAgentRequest): Promise<Sessi
     } else if (hitTurnLimit) {
       finalText = `Agent 已达到 ${maxTurns} 轮上限，未能完成该请求。请补充指标、时间或维度口径后重试。`;
     } else {
-      const context = await fallbackContext();
-      finalText = context.examples.length
-        ? `未能完成查询。已检索到相近样例：${context.examples[0].question}`
-        : '未能完成查询。请补充指标、时间或维度口径。';
+      const failureReason =
+        agentError ||
+        (terminalStopReason ? `终止原因：${terminalStopReason}` : '模型未返回可执行内容');
+      finalText = `未能完成查询：${failureReason}`;
     }
     emit('message', { text: finalText });
   }
@@ -285,7 +412,14 @@ export async function runFullAgentFlow(request: FullAgentRequest): Promise<Sessi
     requestId,
     mode: 'full',
     turns: turnCount,
+    toolCallCount,
     hitTurnLimit,
+    stopReason: hitLengthLimit ? 'length' : undefined,
+    thinkingTokens: hitLengthLimit ? lengthThinkingTokens : undefined,
+    reason:
+      hitLengthLimit
+        ? 'length'
+        : agentError || terminalStopReason || undefined,
     error: agentError || undefined,
   });
   return {

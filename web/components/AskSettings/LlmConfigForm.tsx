@@ -20,7 +20,7 @@ const emptyForm = {
   api_key: '',
   base_url: '',
   temperature: 0.2,
-  max_tokens: 4096,
+  max_tokens: 8192,
   is_active: false,
 };
 

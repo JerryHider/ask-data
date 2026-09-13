@@ -3,8 +3,6 @@
 import { useState } from 'react';
 import { useAskDataStore } from '../../lib/store';
 
-const commands = ['/login', '/audit', '/sync-dbt'];
-
 export default function InputBox() {
   const [value, setValue] = useState('');
   const streaming = useAskDataStore((state) => state.streaming);
@@ -24,18 +22,6 @@ export default function InputBox() {
         </div>
       ) : null}
     <footer className="border-t border-slate-200 p-4">
-      <div className="mb-2 flex flex-wrap gap-2 text-xs text-slate-500">
-        {commands.map((command) => (
-          <button
-            key={command}
-            type="button"
-            onClick={() => setValue(`${command} `)}
-            className="rounded border border-slate-200 bg-slate-50 px-2 py-1"
-          >
-            {command}
-          </button>
-        ))}
-      </div>
       <form
         className="flex gap-2"
         onSubmit={(event) => {

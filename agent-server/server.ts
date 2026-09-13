@@ -936,8 +936,10 @@ app.get('/health', (_request, response) => {
 
 app.post('/api/session', async (request, response) => {
   const body = (request.body ?? {}) as { skill_test?: string };
+  const sessionId = randomUUID();
   const session: SessionRecord = {
-    id: randomUUID(),
+    id: sessionId,
+    conversationId: sessionId,
     title: '新任务',
     createdAt: now(),
     updatedAt: now(),
@@ -945,14 +947,15 @@ app.post('/api/session', async (request, response) => {
     messages: [],
   };
   await writeSession(session);
-  response.status(201).json({ sessionId: session.id });
+  response.status(201).json({ sessionId: session.id, conversationId: session.conversationId });
 });
 
 app.get('/api/sessions', async (_request, response) => {
   const sessions = await listSessions();
   response.json(
-    sessions.map(({ id, title, createdAt, updatedAt, skillTestId }) => ({
+    sessions.map(({ id, conversationId, title, createdAt, updatedAt, skillTestId }) => ({
       id,
+      conversationId: conversationId ?? id,
       title,
       createdAt,
       updatedAt,
@@ -989,17 +992,27 @@ app.delete('/api/sessions/:id', async (request, response) => {
 });
 
 app.post('/api/message', async (request, response) => {
-  const body = request.body as { sessionId?: string; message?: string; user?: string };
+  const body = request.body as {
+    conversation_id?: string;
+    sessionId?: string;
+    message?: string;
+    user?: string;
+  };
   const clarification = (request.body as {
     clarification?: { question?: unknown; selectedOption?: unknown };
   }).clarification;
-  if (!body.sessionId || !body.message?.trim()) {
-    response.status(400).json({ message: 'sessionId and message are required' });
+  const conversationId = body.conversation_id ?? body.sessionId;
+  if (!conversationId || !body.message?.trim()) {
+    response.status(400).json({ message: 'conversation_id and message are required' });
     return;
   }
-  const session = await readSession(body.sessionId);
+  const session = await readSession(conversationId);
   if (!session) {
     response.status(404).json({ message: 'Session not found' });
+    return;
+  }
+  if (session.conversationId && session.conversationId !== conversationId) {
+    response.status(400).json({ message: 'conversation_id does not match the session' });
     return;
   }
 

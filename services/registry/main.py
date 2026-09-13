@@ -102,7 +102,7 @@ class LlmConfigRequest(BaseModel):
     api_key: str | None = None
     base_url: str | None = None
     temperature: float = Field(default=0.2, ge=0, le=1)
-    max_tokens: int = Field(default=4096, ge=1, le=200000)
+    max_tokens: int = Field(default=8192, ge=1, le=200000)
     is_active: bool = False
 
 

@@ -7,6 +7,7 @@ export interface SessionMessage {
 
 export interface SessionRecord {
   id: string;
+  conversationId: string;
   title: string;
   createdAt: string;
   updatedAt: string;

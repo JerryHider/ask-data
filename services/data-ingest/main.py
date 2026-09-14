@@ -19,9 +19,11 @@ from pydantic import BaseModel, Field
 
 from models import (
     add_import_history,
+    add_query_history,
     add_table_deletion_history,
     init_db,
     list_import_history,
+    list_query_history,
 )
 
 
@@ -165,6 +167,13 @@ def list_imports() -> list[dict[str, Any]]:
     return list_import_history()
 
 
+@app.get('/query/history')
+def query_history(limit: int = 50) -> list[dict[str, Any]]:
+    if limit < 1 or limit > 200:
+        raise HTTPException(status_code=422, detail='limit must be between 1 and 200')
+    return list_query_history(limit)
+
+
 @app.get('/tables')
 def list_tables() -> list[dict[str, Any]]:
     connection = mysql_connection()
@@ -275,7 +284,13 @@ def query_database(request: QueryRequest) -> dict[str, Any]:
     )
     try:
         with urllib.request.urlopen(outbound, timeout=35) as response:
-            return json.loads(response.read().decode('utf-8'))
+            result = json.loads(response.read().decode('utf-8'))
+            add_query_history(
+                sql=sql,
+                row_count=int(result.get('rowCount', 0)),
+                duration_ms=int(result.get('durationMs', 0)),
+            )
+            return result
     except urllib.error.HTTPError as exc:
         try:
             body = json.loads(exc.read().decode('utf-8'))

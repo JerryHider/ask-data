@@ -32,6 +32,18 @@ def init_db() -> None:
             'duration_ms INTEGER NOT NULL, '
             'created_at TEXT NOT NULL)'
         )
+        database.execute(
+            'CREATE TABLE IF NOT EXISTS query_history ('
+            'id INTEGER PRIMARY KEY AUTOINCREMENT, '
+            'sql TEXT NOT NULL, '
+            'row_count INTEGER NOT NULL, '
+            'duration_ms INTEGER NOT NULL, '
+            'created_at TEXT NOT NULL)'
+        )
+        database.execute(
+            'CREATE INDEX IF NOT EXISTS idx_query_history_created_at '
+            'ON query_history(created_at)'
+        )
 
 
 def add_import_history(**values: Any) -> None:
@@ -84,3 +96,31 @@ def add_table_deletion_history(**values: Any) -> None:
                 created_at,
             ),
         )
+
+
+
+
+def add_query_history(**values: Any) -> None:
+    created_at = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(DATABASE_PATH) as database:
+        database.execute(
+            'INSERT INTO query_history (sql, row_count, duration_ms, created_at) '
+            'VALUES (?, ?, ?, ?)',
+            (
+                values['sql'],
+                values['row_count'],
+                values['duration_ms'],
+                created_at,
+            ),
+        )
+
+
+def list_query_history(limit: int = 50) -> list[dict[str, Any]]:
+    with sqlite3.connect(DATABASE_PATH) as database:
+        database.row_factory = sqlite3.Row
+        rows = database.execute(
+            'SELECT id, sql, row_count, duration_ms, created_at '
+            'FROM query_history ORDER BY id DESC LIMIT ?',
+            (limit,),
+        ).fetchall()
+    return [dict(row) for row in rows]

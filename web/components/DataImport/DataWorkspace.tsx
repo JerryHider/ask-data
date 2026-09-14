@@ -27,6 +27,14 @@ interface QueryResult {
   sql: string;
 }
 
+interface QueryHistoryItem {
+  id: number;
+  sql: string;
+  row_count: number;
+  duration_ms: number;
+  created_at: string;
+}
+
 type WorkspaceTab = 'query' | 'import' | 'connection';
 
 const tabs: { key: WorkspaceTab; label: string }[] = [
@@ -42,6 +50,13 @@ function formatCell(value: unknown): string {
   return String(value);
 }
 
+function formatHistoryTime(value: string): string {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp)
+    ? new Date(timestamp).toLocaleString()
+    : value;
+}
+
 export default function DataWorkspace() {
   const [tab, setTab] = useState<WorkspaceTab>('query');
   const [tables, setTables] = useState<DatabaseTable[]>([]);
@@ -51,6 +66,7 @@ export default function DataWorkspace() {
   const [result, setResult] = useState<QueryResult | null>(null);
   const [loadingTables, setLoadingTables] = useState(false);
   const [querying, setQuerying] = useState(false);
+  const [queryHistory, setQueryHistory] = useState<QueryHistoryItem[]>([]);
   const [deletingTable, setDeletingTable] = useState('');
   const [error, setError] = useState('');
 
@@ -74,6 +90,19 @@ export default function DataWorkspace() {
   useEffect(() => {
     void loadTables();
   }, [loadTables]);
+
+  const loadQueryHistory = useCallback(async () => {
+    try {
+      const response = await fetch('/api/ingest/query/history?limit=50');
+      if (!response.ok) return;
+      setQueryHistory(await response.json());
+    } catch {
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadQueryHistory();
+  }, [loadQueryHistory]);
 
   const filteredTables = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
@@ -112,6 +141,7 @@ export default function DataWorkspace() {
         durationMs: data.durationMs ?? 0,
         sql: data.sql ?? sql,
       });
+      await loadQueryHistory();
     } catch (queryError) {
       setError((queryError as Error).message);
     } finally {
@@ -271,6 +301,43 @@ export default function DataWorkspace() {
                 </button>
               </div>
               {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
+            </div>
+
+            <div className="max-h-44 shrink-0 overflow-auto border-b border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-semibold text-slate-600">查询历史</h3>
+                <span className="text-xs text-slate-400">仅保存执行成功的 SQL</span>
+              </div>
+              {queryHistory.length ? (
+                <ul className="mt-2 space-y-1">
+                  {queryHistory.map((item) => (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSql(item.sql);
+                          setResult(null);
+                          setError('');
+                        }}
+                        className="w-full rounded px-2 py-2 text-left hover:bg-white"
+                        title={item.sql}
+                      >
+                        <div className="flex items-center justify-between gap-3 text-xs text-slate-500">
+                          <span>{formatHistoryTime(item.created_at)}</span>
+                          <span className="shrink-0">
+                            {item.row_count} 行 · {item.duration_ms}ms
+                          </span>
+                        </div>
+                        <code className="mt-1 block truncate font-mono text-xs text-slate-700">
+                          {item.sql}
+                        </code>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 text-xs text-slate-500">暂无成功执行的查询记录</p>
+              )}
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto p-4">

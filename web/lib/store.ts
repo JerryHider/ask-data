@@ -13,6 +13,14 @@ export interface QueryResult {
   sql: string;
 }
 
+export interface DataQueryTable {
+  schema: string;
+  name: string;
+  type: string;
+  estimatedRowCount: number;
+  columns: { name: string; dataType: string; nullable: boolean; key: string }[];
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -49,7 +57,14 @@ interface AskDataState {
   logs: string[];
   skillTestId: string | null;
   skillTestName: string | null;
+  dataQuerySql: string;
+  dataQueryResult: QueryResult | null;
+  dataQuerySelectedTable: DataQueryTable | null;
   setActiveModule: (module: ModuleKey) => void;
+  setDataQuerySql: (sql: string) => void;
+  setDataQueryResult: (result: QueryResult | null) => void;
+  setDataQuerySelectedTable: (table: DataQueryTable | null) => void;
+  clearDataQueryWorkspace: () => void;
   loadSessions: () => Promise<void>;
   createSession: () => Promise<void>;
   selectSession: (sessionId: string) => Promise<void>;
@@ -103,7 +118,15 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
   logs: [],
   skillTestId: null,
   skillTestName: null,
+  dataQuerySql: '',
+  dataQueryResult: null,
+  dataQuerySelectedTable: null,
   setActiveModule: (activeModule) => set({ activeModule }),
+  setDataQuerySql: (dataQuerySql) => set({ dataQuerySql }),
+  setDataQueryResult: (dataQueryResult) => set({ dataQueryResult }),
+  setDataQuerySelectedTable: (dataQuerySelectedTable) => set({ dataQuerySelectedTable }),
+  clearDataQueryWorkspace: () =>
+    set({ dataQuerySql: '', dataQueryResult: null, dataQuerySelectedTable: null }),
   loadSessions: async () => {
     const response = await fetch('/api/sessions');
     if (!response.ok) return;

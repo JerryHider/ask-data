@@ -124,3 +124,12 @@ def list_query_history(limit: int = 50) -> list[dict[str, Any]]:
             (limit,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def delete_query_history(history_id: int) -> bool:
+    with sqlite3.connect(DATABASE_PATH) as database:
+        cursor = database.execute(
+            'DELETE FROM query_history WHERE id = ?',
+            (history_id,),
+        )
+        return cursor.rowcount > 0

@@ -24,6 +24,7 @@ from models import (
     init_db,
     list_import_history,
     list_query_history,
+    delete_query_history,
 )
 
 
@@ -172,6 +173,15 @@ def query_history(limit: int = 50) -> list[dict[str, Any]]:
     if limit < 1 or limit > 200:
         raise HTTPException(status_code=422, detail='limit must be between 1 and 200')
     return list_query_history(limit)
+
+
+@app.delete('/query/history/{history_id}')
+def remove_query_history(history_id: int) -> dict[str, bool]:
+    if history_id < 1:
+        raise HTTPException(status_code=422, detail='history_id must be positive')
+    if not delete_query_history(history_id):
+        raise HTTPException(status_code=404, detail='Query history not found')
+    return {'ok': True}
 
 
 @app.get('/tables')

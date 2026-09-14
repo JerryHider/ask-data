@@ -1,31 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { DataQueryTable, QueryResult, useAskDataStore } from '../../lib/store';
 import DbConnectionPanel from './DbConnectionPanel';
 import FileImportPanel from './FileImportPanel';
-
-interface TableColumn {
-  name: string;
-  dataType: string;
-  nullable: boolean;
-  key: string;
-}
-
-interface DatabaseTable {
-  schema: string;
-  name: string;
-  type: string;
-  estimatedRowCount: number;
-  columns: TableColumn[];
-}
-
-interface QueryResult {
-  columns: string[];
-  rows: Record<string, unknown>[];
-  rowCount: number;
-  durationMs: number;
-  sql: string;
-}
 
 interface QueryHistoryItem {
   id: number;
@@ -59,16 +37,23 @@ function formatHistoryTime(value: string): string {
 
 export default function DataWorkspace() {
   const [tab, setTab] = useState<WorkspaceTab>('query');
-  const [tables, setTables] = useState<DatabaseTable[]>([]);
-  const [selectedTable, setSelectedTable] = useState<DatabaseTable | null>(null);
+  const [tables, setTables] = useState<DataQueryTable[]>([]);
   const [keyword, setKeyword] = useState('');
-  const [sql, setSql] = useState('');
-  const [result, setResult] = useState<QueryResult | null>(null);
   const [loadingTables, setLoadingTables] = useState(false);
   const [querying, setQuerying] = useState(false);
   const [queryHistory, setQueryHistory] = useState<QueryHistoryItem[]>([]);
+  const [deletingHistoryId, setDeletingHistoryId] = useState<number | null>(null);
   const [deletingTable, setDeletingTable] = useState('');
   const [error, setError] = useState('');
+  const sql = useAskDataStore((state) => state.dataQuerySql);
+  const result = useAskDataStore((state) => state.dataQueryResult);
+  const selectedTable = useAskDataStore((state) => state.dataQuerySelectedTable);
+  const setDataQuerySql = useAskDataStore((state) => state.setDataQuerySql);
+  const setDataQueryResult = useAskDataStore((state) => state.setDataQueryResult);
+  const setDataQuerySelectedTable = useAskDataStore(
+    (state) => state.setDataQuerySelectedTable
+  );
+  const clearDataQueryWorkspace = useAskDataStore((state) => state.clearDataQueryWorkspace);
 
   const loadTables = useCallback(async () => {
     setLoadingTables(true);
@@ -112,11 +97,11 @@ export default function DataWorkspace() {
     );
   }, [keyword, tables]);
 
-  function selectTable(table: DatabaseTable) {
-    setSelectedTable(table);
+  function selectTable(table: DataQueryTable) {
+    setDataQuerySelectedTable(table);
     setTab('query');
-    setSql(`SELECT *\nFROM \`${table.schema}\`.\`${table.name}\`\nLIMIT 100`);
-    setResult(null);
+    setDataQuerySql(`SELECT *\nFROM \`${table.schema}\`.\`${table.name}\`\nLIMIT 100`);
+    setDataQueryResult(null);
     setError('');
   }
 
@@ -124,7 +109,7 @@ export default function DataWorkspace() {
     if (!sql.trim() || querying) return;
     setQuerying(true);
     setError('');
-    setResult(null);
+    setDataQueryResult(null);
     try {
       const response = await fetch('/api/ingest/query', {
         method: 'POST',
@@ -134,7 +119,7 @@ export default function DataWorkspace() {
       const data = (await response.json()) as Partial<QueryResult> & { detail?: string };
       if (!response.ok) throw new Error(data.detail ?? '查询失败');
       if (!data.columns || !data.rows) throw new Error('查询结果格式错误');
-      setResult({
+      setDataQueryResult({
         columns: data.columns,
         rows: data.rows,
         rowCount: data.rowCount ?? data.rows.length,
@@ -149,7 +134,7 @@ export default function DataWorkspace() {
     }
   }
 
-  async function deleteTable(table: DatabaseTable) {
+  async function deleteTable(table: DataQueryTable) {
     const tableKey = `${table.schema}.${table.name}`;
     if (deletingTable) return;
     if (
@@ -172,15 +157,33 @@ export default function DataWorkspace() {
         throw new Error(detail.detail ?? '删除表失败');
       }
       if (selectedTable?.schema === table.schema && selectedTable?.name === table.name) {
-        setSelectedTable(null);
-        setSql('');
-        setResult(null);
+        clearDataQueryWorkspace();
       }
       await loadTables();
     } catch (deleteError) {
       setError((deleteError as Error).message);
     } finally {
       setDeletingTable('');
+    }
+  }
+
+  async function deleteQueryHistory(historyId: number) {
+    if (deletingHistoryId !== null) return;
+    setDeletingHistoryId(historyId);
+    setError('');
+    try {
+      const response = await fetch(`/api/ingest/query/history/${historyId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        const detail = (await response.json()) as { detail?: string };
+        throw new Error(detail.detail ?? '删除查询历史失败');
+      }
+      await loadQueryHistory();
+    } catch (deleteHistoryError) {
+      setError((deleteHistoryError as Error).message);
+    } finally {
+      setDeletingHistoryId(null);
     }
   }
 
@@ -284,7 +287,7 @@ export default function DataWorkspace() {
             <div className="border-b border-slate-200 p-4">
               <textarea
                 value={sql}
-                onChange={(event) => setSql(event.target.value)}
+                onChange={(event) => setDataQuerySql(event.target.value)}
                 placeholder="输入 SELECT 查询语句，例如：SELECT * FROM askdata.fct_orders LIMIT 100"
                 spellCheck={false}
                 className="h-32 w-full resize-none rounded border border-slate-300 p-3 font-mono text-sm"
@@ -312,26 +315,36 @@ export default function DataWorkspace() {
                 <ul className="mt-2 space-y-1">
                   {queryHistory.map((item) => (
                     <li key={item.id}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSql(item.sql);
-                          setResult(null);
-                          setError('');
-                        }}
-                        className="w-full rounded px-2 py-2 text-left hover:bg-white"
-                        title={item.sql}
-                      >
-                        <div className="flex items-center justify-between gap-3 text-xs text-slate-500">
-                          <span>{formatHistoryTime(item.created_at)}</span>
-                          <span className="shrink-0">
-                            {item.row_count} 行 · {item.duration_ms}ms
-                          </span>
-                        </div>
-                        <code className="mt-1 block truncate font-mono text-xs text-slate-700">
-                          {item.sql}
-                        </code>
-                      </button>
+                      <div className="flex items-start gap-1 rounded px-2 py-2 hover:bg-white">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDataQuerySql(item.sql);
+                            setDataQueryResult(null);
+                            setError('');
+                          }}
+                          className="min-w-0 flex-1 text-left"
+                          title={item.sql}
+                        >
+                          <div className="flex items-center justify-between gap-3 text-xs text-slate-500">
+                            <span>{formatHistoryTime(item.created_at)}</span>
+                            <span className="shrink-0">
+                              {item.row_count} 行 · {item.duration_ms}ms
+                            </span>
+                          </div>
+                          <code className="mt-1 block truncate font-mono text-xs text-slate-700">
+                            {item.sql}
+                          </code>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deleteQueryHistory(item.id)}
+                          disabled={deletingHistoryId !== null}
+                          className="shrink-0 rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          {deletingHistoryId === item.id ? '删除中' : '删除'}
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>

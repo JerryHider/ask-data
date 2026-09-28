@@ -1,189 +1,186 @@
 version: 2
-
 semantic_models:
-  - name: insurance_order
-    label: 保险订单
-    description: 保险订单事实表，粒度为一行一个订单。
-    model: ref('order_detail')
-    defaults:
-      agg_time_dimension: order_effective_time
-    entities:
-      - name: order
-        type: primary
-        expr: order_id
-      - name: policy
-        type: foreign
-        expr: policy_no
-      - name: product
-        type: foreign
-        expr: sys_product_id
-      - name: insurance_company
-        type: foreign
-        expr: insurance_company_id
-      - name: channel
-        type: foreign
-        expr: order_channel_id
-      - name: department
-        type: foreign
-        expr: sub_department_id
-      - name: insure_unit
-        type: foreign
-        expr: insure_unit_code
-      - name: customer
-        type: foreign
-        expr: insure_customer_id
-    dimensions:
-      - name: insure_time
-        type: time
-        type_params:
-          time_granularity: day
-      - name: order_pay_time
-        type: time
-        type_params:
-          time_granularity: day
-      - name: order_effective_time
-        type: time
-        description: 订单生效时间，默认统计时间轴。
-        type_params:
-          time_granularity: day
-      - name: order_effective_year
-        type: categorical
-        description: 订单生效年份。
-        expr: DATE_FORMAT(order_effective_time, '%Y')
-      - name: order_effective_month
-        type: categorical
-        description: 订单生效月份。
-        expr: DATE_FORMAT(order_effective_time, '%Y-%m')
-      - name: order_expiration_time
-        type: time
-        type_params:
-          time_granularity: day
-      - name: unit_first_insurance_time
-        type: time
-        type_params:
-          time_granularity: day
-      - name: product_online_date
-        type: time
-        type_params:
-          time_granularity: day
-      - name: etl_time
-        type: time
-        type_params:
-          time_granularity: hour
-      - name: parent_order_pay_time
-        type: time
-        type_params:
-          time_granularity: day
-      - name: order_status
-        type: categorical
-        expr: order_status_name
-      - name: order_type
-        type: categorical
-        expr: order_type_name
-      - name: product_name
-        type: categorical
-        expr: product_name
-      - name: product_line
-        type: categorical
-        expr: product_line_name
-      - name: insurance_company_name
-        type: categorical
-        expr: insurance_company_name
-      - name: order_channel
-        type: categorical
-        expr: order_channel_name
-      - name: channel_type
-        type: categorical
-        expr: channel_type
-      - name: sub_department
-        type: categorical
-        expr: sub_department_name
-      - name: insure_unit_province
-        type: categorical
-        expr: insure_unit_province
-      - name: insure_unit_city
-        type: categorical
-        expr: insure_unit_city
-      - name: insure_unit_district
-        type: categorical
-        expr: insure_unit_district
-      - name: industry
-        type: categorical
-        expr: industry_name
-      - name: profession_level
-        type: categorical
-        expr: profession_level_name
-      - name: sales_area
-        type: categorical
-        expr: sales_area_name
-      - name: insure_source
-        type: categorical
-        expr: insure_source_name
-      - name: is_human_resources
-        type: categorical
-        expr: is_human_resources
-      - name: order_pay_type
-        type: categorical
-        expr: order_pay_type_name
-    measures:
-      - name: total_premium
-        description: 保费合计。
-        agg: sum
-        expr: insure_money
-      - name: total_insurance_amount
-        description: 保额合计。
-        agg: sum
-        expr: insurance_amount
-      - name: order_cnt
-        description: 订单数。
-        agg: count
-        expr: order_id
-      - name: new_order_cnt
-        description: 投保订单数。
-        agg: count
-        expr: case when order_type_name = '投保' then order_id end
-      - name: cancellation_order_cnt
-        description: 退保订单数。
-        agg: count
-        expr: case when order_type_name = '退保' then order_id end
-      - name: policy_cnt
-        description: 保单数。
-        agg: count_distinct
-        expr: policy_no
-      - name: insured_person_cnt
-        description: 投保人数。
-        agg: sum
-        expr: insure_person_times
-      - name: reduct_person_cnt
-        description: 减保人数。
-        agg: sum
-        expr: reduct_person_times
-      - name: avg_order_premium
-        description: 平均订单保费。
-        agg: average
-        expr: insure_money
-      - name: order_premium_p95
-        description: 订单保费 P95。
-        agg: percentile
-        expr: insure_money
-        agg_params:
-          percentile: 0.95
-          use_discrete_percentile: true
-      - name: paid_axis_premium
-        description: 按支付时间统计的保费。
-        agg: sum
-        expr: insure_money
-        agg_time_dimension: order_pay_time
-      - name: current_insured_person_cnt
-        description: 按保单最新生效记录统计的在保人数。
-        agg: sum
-        expr: insure_person_times
-        non_additive_dimension:
-          name: order_effective_time
-          window_choice: max
-          window_groupings:
-            - policy
-      - name: total_brokerage_fee
-        description: 佣金合计。
-        agg: sum
-        expr: settlement_brokerage_fee
+- name: insurance_order
+  model: ref('order_detail')
+  defaults:
+    agg_time_dimension: order_effective_time
+  entities:
+  - name: order
+    type: primary
+    expr: order_id
+  - name: policy
+    type: foreign
+    expr: policy_no
+  - name: product
+    type: foreign
+    expr: sys_product_id
+  - name: insurance_company
+    type: foreign
+    expr: insurance_company_id
+  - name: channel
+    type: foreign
+    expr: order_channel_id
+  - name: department
+    type: foreign
+    expr: sub_department_id
+  - name: insure_unit
+    type: foreign
+    expr: insure_unit_code
+  - name: customer
+    type: foreign
+    expr: insure_customer_id
+  dimensions:
+  - name: insure_term_unit
+    type: categorical
+    expr: insure_term_unit
+    description: 保障期限单位，M表示月，D表示天，和insure_term联动使用，表示保障期限
+  - name: insure_time
+    type: time
+    type_params:
+      time_granularity: day
+  - name: order_pay_time
+    type: time
+    type_params:
+      time_granularity: day
+  - name: order_effective_time
+    type: time
+    description: 订单生效时间，默认统计时间轴。
+    type_params:
+      time_granularity: day
+  - name: order_expiration_time
+    type: time
+    type_params:
+      time_granularity: day
+  - name: unit_first_insurance_time
+    type: time
+    type_params:
+      time_granularity: day
+  - name: product_online_date
+    type: time
+    type_params:
+      time_granularity: day
+  - name: etl_time
+    type: time
+    type_params:
+      time_granularity: hour
+  - name: parent_order_pay_time
+    type: time
+    type_params:
+      time_granularity: day
+  - name: order_status
+    type: categorical
+    expr: order_status_name
+  - name: order_type
+    type: categorical
+    expr: order_type_name
+  - name: product_name
+    type: categorical
+    expr: product_name
+  - name: product_line
+    type: categorical
+    expr: product_line_name
+  - name: insurance_company_name
+    type: categorical
+    expr: insurance_company_name
+  - name: order_channel
+    type: categorical
+    expr: order_channel_name
+  - name: channel_type
+    type: categorical
+    expr: channel_type
+  - name: sub_department
+    type: categorical
+    expr: sub_department_name
+  - name: insure_unit_province
+    type: categorical
+    expr: insure_unit_province
+  - name: insure_unit_city
+    type: categorical
+    expr: insure_unit_city
+  - name: insure_unit_district
+    type: categorical
+    expr: insure_unit_district
+  - name: industry
+    type: categorical
+    expr: industry_name
+  - name: profession_level
+    type: categorical
+    expr: profession_level_name
+  - name: sales_area
+    type: categorical
+    expr: sales_area_name
+  - name: insure_source
+    type: categorical
+    expr: insure_source_name
+  - name: is_human_resources
+    type: categorical
+    expr: is_human_resources
+  - name: order_pay_type
+    type: categorical
+    expr: order_pay_type_name
+  - name: insure_term
+    type: categorical
+  measures:
+  - name: total_premium
+    agg: sum
+    expr: insure_money
+    description: 保费合计。
+  - name: total_insurance_amount
+    agg: sum
+    expr: insurance_amount
+    description: 保额合计。
+  - name: order_cnt
+    agg: count
+    expr: order_id
+    description: 订单数。
+  - name: new_order_cnt
+    agg: count
+    expr: case when order_type_name = '投保' then order_id end
+    description: 投保订单数。
+  - name: cancellation_order_cnt
+    agg: count
+    expr: case when order_type_name = '退保' then order_id end
+    description: 退保订单数。
+  - name: policy_cnt
+    agg: count_distinct
+    expr: policy_no
+    description: 保单数。
+  - name: insured_person_cnt
+    agg: sum
+    expr: insure_person_times
+    description: 投保人数。
+  - name: reduct_person_cnt
+    agg: sum
+    expr: reduct_person_times
+    description: 减保人数。
+  - name: avg_order_premium
+    agg: average
+    expr: insure_money
+    description: 平均订单保费。
+  - name: order_premium_p95
+    agg: percentile
+    expr: insure_money
+    description: 订单保费 P95。
+    agg_params:
+      percentile: 0.95
+      use_discrete_percentile: true
+  - name: paid_axis_premium
+    agg: sum
+    expr: insure_money
+    description: 按支付时间统计的保费。
+    agg_time_dimension: order_pay_time
+  - name: current_insured_person_cnt
+    agg: sum
+    expr: insure_person_times
+    description: 按保单最新生效记录统计的在保人数。
+    non_additive_dimension:
+      name: order_effective_time
+      window_choice: max
+      window_groupings:
+      - policy
+  - name: total_brokerage_fee
+    agg: sum
+    expr: settlement_brokerage_fee
+    description: 佣金合计。
+  label: 保险订单
+  description: 保险订单事实表，粒度为一行一个订单。

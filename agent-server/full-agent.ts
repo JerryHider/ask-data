@@ -14,6 +14,7 @@ import { appendRolloutEvent } from './rollout.js';
 import type {
   QueryMetricOptions,
   QueryResult,
+  SemanticModelRecord,
   SessionMessage,
   SessionRecord,
 } from './types.js';
@@ -60,8 +61,44 @@ export function toAgentMessages(history: SessionMessage[]): AgentMessage[] {
   });
 }
 
-export function fullAgentSystemPrompt(skillPrompt = ''): string {
+export function renderSemanticDescriptions(models: SemanticModelRecord[]): string {
+  const sections = models
+    .map((model) => {
+      const elements = [
+        ...(model.config.entities ?? []).map((item) => ({
+          kind: 'entity',
+          name: item.name,
+          description: item.description,
+        })),
+        ...(model.config.dimensions ?? []).map((item) => ({
+          kind: 'dimension',
+          name: item.name,
+          description: item.description,
+        })),
+        ...(model.config.measures ?? []).map((item) => ({
+          kind: 'measure',
+          name: item.name,
+          description: item.description,
+        })),
+      ]
+        .filter((item) => item.name && item.description)
+        .map((item) => `- ${item.kind} ${item.name}: ${item.description}`);
+
+      if (model.config.description) {
+        elements.unshift(`- model ${model.config.name}: ${model.config.description}`);
+      }
+      if (!elements.length) return '';
+      return `### ${model.config.name ?? model.name}\n${elements.join('\n')}`;
+    })
+    .filter(Boolean);
+
+  if (!sections.length) return '';
+  return `=== 语义模型描述 ===\n${sections.join('\n\n')}`;
+}
+
+export function fullAgentSystemPrompt(skillPrompt = '', semanticDescriptions = ''): string {
   return [
+    '生成工具参数和最终答案前，必须先参考语义模型描述；描述中的业务口径、维度含义和计算说明优先于名称直觉。',
     '遇到以下情况时，立即停止推理并调用 clarify：',
     '- 范围歧义：用户问“分区域/分城市”时，上一轮实体的区域内细分（如湖北各市州）与实体外扩展（如全国各区域）均合理；',
     '- 粒度歧义：“按月/按年”与上一轮时间语境冲突；',
@@ -78,6 +115,7 @@ export function fullAgentSystemPrompt(skillPrompt = ''): string {
     '只有当当前问题和完整对话历史都无法确定必要实体或时间范围时，才调用 clarify；不要在历史已有答案时重复追问。',
     "query_metric 的 where 必须使用原生 Jinja 语法，例如 {{ Dimension('order__insure_unit_province') }} = '湖北省'；不要使用裸字段或 ==。",
     skillPrompt,
+    semanticDescriptions,
   ]
     .filter(Boolean)
     .join('\n');
@@ -178,28 +216,11 @@ export async function runFullAgentFlow(request: FullAgentRequest): Promise<Sessi
     writeSse(event, data);
   };
 
-  let reasoningBuffer = '';
   let reasoningSeq = 0;
-  let reasoningTimer: ReturnType<typeof setTimeout> | undefined;
-  const flushReasoning = (): void => {
-    if (reasoningTimer) {
-      clearTimeout(reasoningTimer);
-      reasoningTimer = undefined;
-    }
-    if (!reasoningBuffer) return;
-    const delta = reasoningBuffer;
-    reasoningBuffer = '';
+  const emitReasoningDelta = (delta: string): void => {
+    if (!delta) return;
     reasoningSeq += 1;
     emitSse('reasoning', { seq: reasoningSeq, delta });
-  };
-  const queueReasoningDelta = (delta: string): void => {
-    reasoningBuffer += delta;
-    if (!reasoningTimer) {
-      reasoningTimer = setTimeout(() => {
-        reasoningTimer = undefined;
-        flushReasoning();
-      }, 200);
-    }
   };
 
   const heartbeat = setInterval(() => {
@@ -269,7 +290,10 @@ export async function runFullAgentFlow(request: FullAgentRequest): Promise<Sessi
 
   const agent = new Agent({
     initialState: {
-      systemPrompt: fullAgentSystemPrompt(skillPrompt),
+      systemPrompt: fullAgentSystemPrompt(
+        skillPrompt,
+        renderSemanticDescriptions(semanticModels)
+      ),
       model: llm.model,
       thinkingLevel: 'low',
       tools,
@@ -303,11 +327,8 @@ export async function runFullAgentFlow(request: FullAgentRequest): Promise<Sessi
     if (event.type === 'message_update') {
       lastOutputAt = Date.now();
       if (event.assistantMessageEvent.type === 'thinking_delta') {
-        queueReasoningDelta(String(event.assistantMessageEvent.delta ?? ''));
+        emitReasoningDelta(String(event.assistantMessageEvent.delta ?? ''));
       }
-    }
-    if (event.type === 'message_end' || event.type === 'agent_end') {
-      flushReasoning();
     }
     if (event.type === 'tool_execution_start') {
       toolCallCount += 1;
@@ -377,7 +398,6 @@ export async function runFullAgentFlow(request: FullAgentRequest): Promise<Sessi
     agentError = (error as Error).message || '模型调用异常';
   } finally {
     clearInterval(heartbeat);
-    flushReasoning();
   }
 
   if (hitLengthLimit) {

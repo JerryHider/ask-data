@@ -34,7 +34,15 @@ export interface SemanticModelRecord {
     synonyms?: string[];
     source_table?: string;
     source_schema?: string | null;
+    entities?: SemanticModelElement[];
+    dimensions?: SemanticModelElement[];
+    measures?: SemanticModelElement[];
   };
+}
+
+export interface SemanticModelElement {
+  name?: string;
+  description?: string;
 }
 
 export interface SemanticMetric {

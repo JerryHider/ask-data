@@ -213,7 +213,7 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
           });
         } else if (event === 'tool_call') {
           set({
-            streamStatus: null,
+            streamStatus: `正在调用工具：${String(payload.name ?? '')}`,
             logs: [...get().logs, `tool_call: ${String(payload.name)}`],
             messages: [
               ...get().messages,
@@ -227,7 +227,10 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
             ],
           });
         } else if (event === 'tool_result') {
-          set({ logs: [...get().logs, `tool_result: ${String(payload.name)}`] });
+          set({
+            streamStatus: `正在处理工具结果：${String(payload.name ?? '')}`,
+            logs: [...get().logs, `tool_result: ${String(payload.name)}`],
+          });
           const messages = [...get().messages];
           for (let index = messages.length - 1; index >= 0; index -= 1) {
             if (messages[index].toolName === payload.name && !messages[index].toolOutput) {

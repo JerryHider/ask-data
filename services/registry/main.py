@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from models import Base, DbConnection, LlmConfig, RagDoc, RagSpace, SemanticModel, SessionLocal, Skill, SqlExample, Setting, engine
 from security import decrypt_secret, encrypt_secret
 from semantic import config_from_yaml, metric_yaml, semantic_model_yaml, validate_metric, validate_name, validate_semantic_model
+from dependencies import dependent_metric_configs, is_non_breaking_semantic_model_update
 from templates import TEMPLATES, template_by_id
 
 
@@ -263,7 +264,7 @@ def semantic_yaml_path(name: str) -> Path:
 
 def dependent_models(session: Any, model: SemanticModel) -> list[SemanticModel]:
     if model.template_id == 'semantic-model':
-        return (
+        metric_models = (
             session.query(SemanticModel)
             .filter(
                 SemanticModel.id != model.id,
@@ -272,6 +273,13 @@ def dependent_models(session: Any, model: SemanticModel) -> list[SemanticModel]:
             )
             .all()
         )
+        metric_configs = [json.loads(item.config) for item in metric_models]
+        dependent_names = {
+            str(item.get('name'))
+            for item in dependent_metric_configs(json.loads(model.config), metric_configs)
+            if item.get('name')
+        }
+        return [item for item in metric_models if item.name in dependent_names]
     dependents: list[SemanticModel] = []
     for candidate in (
         session.query(SemanticModel)
@@ -287,6 +295,24 @@ def dependent_models(session: Any, model: SemanticModel) -> list[SemanticModel]:
         references.extend(item.get('name') for item in config.get('input_metrics', []))
         if model.name in references:
             dependents.append(candidate)
+    return dependents
+
+
+def blocking_semantic_model_update(
+    session: Any,
+    model: SemanticModel,
+    new_config: dict[str, Any]
+) -> list[SemanticModel]:
+    dependents = dependent_models(session, model)
+    if not dependents:
+        return []
+    old_config = json.loads(model.config)
+    if is_non_breaking_semantic_model_update(
+        old_config,
+        new_config,
+        [json.loads(item.config) for item in dependents],
+    ):
+        return []
     return dependents
 
 
@@ -448,8 +474,39 @@ async def update_model(model_id: int, request: UpdateModelRequest) -> dict[str, 
         model = session.get(SemanticModel, model_id)
         if not model:
             raise HTTPException(status_code=404, detail='semantic model not found')
-        if model.status == 'published' and dependent_models(session, model):
-            raise HTTPException(status_code=409, detail='存在依赖该模型的已发布指标，请先撤销依赖项')
+        if model.status == 'published':
+            blocking = blocking_semantic_model_update(session, model, request.config)
+            if blocking:
+                raise HTTPException(status_code=409, detail='存在依赖该模型的已发布指标，请先撤销依赖项')
+            if model.template_id == 'semantic-model':
+                yaml_path = semantic_yaml_path(model.name)
+                previous_yaml = yaml_path.read_text(encoding='utf-8') if yaml_path.exists() else None
+                try:
+                    validate_semantic_config(model.template_id, request.config)
+                    yaml_path.write_text(
+                        semantic_config_yaml(model.template_id, request.config),
+                        encoding='utf-8',
+                    )
+                    model.config = json.dumps(request.config, ensure_ascii=False)
+                    await call_service(METRICFLOW_BRIDGE_URL + '/reparse')
+                    await call_service(ARTIFACT_PARSER_URL + '/sync')
+                except ValueError as exc:
+                    if previous_yaml is None:
+                        yaml_path.unlink(missing_ok=True)
+                    else:
+                        yaml_path.write_text(previous_yaml, encoding='utf-8')
+                    raise HTTPException(status_code=422, detail=str(exc)) from exc
+                except Exception as exc:
+                    if previous_yaml is None:
+                        yaml_path.unlink(missing_ok=True)
+                    else:
+                        yaml_path.write_text(previous_yaml, encoding='utf-8')
+                    session.rollback()
+                    raise HTTPException(status_code=500, detail=str(exc)) from exc
+                session.commit()
+                write_audit('semantic_model_updated', model.name)
+                session.refresh(model)
+                return model_to_dict(model)
         was_published = model.status == 'published'
         yaml_path = semantic_yaml_path(model.name)
         model.config = json.dumps(request.config, ensure_ascii=False)

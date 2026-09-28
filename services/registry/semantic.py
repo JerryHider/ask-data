@@ -33,6 +33,9 @@ def semantic_model_yaml(config: dict[str, Any]) -> str:
         }
         for item in config.get("entities", [])
     ]
+    for item, entity in zip(config.get("entities", []), entities):
+        if item.get("description"):
+            entity["description"] = item["description"]
     dimensions = []
     for item in config.get("dimensions", []):
         dimension: dict[str, Any] = {

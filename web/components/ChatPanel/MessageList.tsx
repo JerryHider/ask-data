@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
+
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ClarifyCard from './ClarifyCard';
@@ -11,13 +13,21 @@ export default function MessageList() {
   const messages = useAskDataStore((state) => state.messages);
   const reasoning = useAskDataStore((state) => state.reasoning);
   const streamStatus = useAskDataStore((state) => state.streamStatus);
+  const streaming = useAskDataStore((state) => state.streaming);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!streaming) return;
+    const list = listRef.current;
+    if (!list) return;
+    list.scrollTop = list.scrollHeight;
+  }, [messages, reasoning, streamStatus, streaming]);
 
   return (
-    <div className="min-h-0 flex-1 space-y-4 overflow-auto p-6">
+    <div ref={listRef} className="min-h-0 flex-1 space-y-4 overflow-auto p-6">
       {messages.length === 0 ? (
         <p className="text-sm text-slate-500">新建任务后输入业务问题，例如“上月 GMV”。</p>
       ) : null}
-      <ReasoningTrace reasoning={reasoning} status={streamStatus} />
       {messages.map((message) => (
         <div key={message.id} className={message.role === 'user' ? 'flex justify-end' : ''}>
           {message.role === 'user' ? (
@@ -29,6 +39,7 @@ export default function MessageList() {
               name={message.toolName ?? ''}
               input={message.toolInput ?? {}}
               output={message.toolOutput}
+              defaultOpen={!message.toolOutput}
             />
           ) : (
             <article className="prose prose-slate max-w-3xl rounded-lg bg-slate-50 px-4 py-3 text-sm">
@@ -37,6 +48,7 @@ export default function MessageList() {
           )}
         </div>
       ))}
+      <ReasoningTrace reasoning={reasoning} status={streamStatus} />
     </div>
   );
 }

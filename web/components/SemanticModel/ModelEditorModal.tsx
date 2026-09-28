@@ -107,7 +107,7 @@ function ArrayField({
     for (const itemField of field.item_fields ?? []) {
       item[itemField.key] = defaultValue(itemField);
     }
-    onChange([...items, item]);
+    onChange([item, ...items]);
   }
 
   return (
@@ -294,7 +294,7 @@ export default function ModelEditorModal({
         </header>
         {model?.status === 'published' ? (
           <div className='bg-yellow-50 px-4 py-2 text-xs text-yellow-800'>
-            该模型已发布。若存在依赖指标，需先撤销依赖项；保存成功后将回退为草稿并需重新发布。
+            该模型已发布。新增维度、补充描述等非破坏性变更可直接保存并发布；删除或重命名实体、维度、度量，或修改被依赖口径时，需先撤销依赖指标。
           </div>
         ) : null}
         <div className='grid gap-4 overflow-auto p-4'>

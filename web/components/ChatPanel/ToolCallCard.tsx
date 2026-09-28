@@ -6,12 +6,14 @@ export default function ToolCallCard({
   name,
   input,
   output,
+  defaultOpen = false,
 }: {
   name: string;
   input: Record<string, unknown>;
   output?: Record<string, unknown>;
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <section className="mt-3 rounded border border-slate-200 bg-white">
       <button

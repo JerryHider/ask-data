@@ -28,6 +28,7 @@ ENTITY_FIELDS = [
     _field("name", "实体名", "text"),
     _field("type", "实体类型", "select", options=["primary", "foreign", "unique", "natural"]),
     _field("expr", "物理列", "text"),
+    _field("description", "描述", "textarea", required=False),
 ]
 
 DIMENSION_FIELDS = [
@@ -35,16 +36,17 @@ DIMENSION_FIELDS = [
     _field("type", "维度类型", "select", options=["time", "categorical"]),
     _field("expr", "物理列", "text", required=False),
     _field("time_granularity", "时间粒度", "select", required=False, options=["day", "week", "month", "quarter", "year", "hour"]),
+    _field("description", "描述", "textarea", required=False),
 ]
 
 MEASURE_FIELDS = [
     _field("name", "度量名", "text"),
     _field("agg", "聚合方式", "select", options=["sum", "min", "max", "average", "median", "count_distinct", "count", "sum_boolean", "percentile"]),
     _field("expr", "列或表达式", "text"),
-    _field("description", "描述", "textarea", required=False),
     _field("agg_time_dimension", "聚合时间轴", "text", required=False),
     _field("percentile", "Percentile", "text", required=False),
     _field("use_discrete_percentile", "离散 Percentile", "boolean", required=False),
+    _field("description", "描述", "textarea", required=False),
 ]
 
 METRIC_INPUT_FIELDS = [

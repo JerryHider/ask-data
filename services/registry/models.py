@@ -62,7 +62,7 @@ class LlmConfig(Base):
     api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     temperature: Mapped[float] = mapped_column(default=0.2)
-    max_tokens: Mapped[int] = mapped_column(Integer, default=4096)
+    max_tokens: Mapped[int] = mapped_column(Integer, default=8192)
     is_active: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

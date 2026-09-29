@@ -39,6 +39,18 @@ function toolResult(details: unknown) {
   };
 }
 
+const maxModelResultRows = 100;
+
+export function limitQueryResultForModel(result: QueryResult) {
+  const returnedRowCount = Math.min(result.rows.length, maxModelResultRows);
+  return {
+    ...result,
+    rows: result.rows.slice(0, maxModelResultRows),
+    returnedRowCount,
+    truncated: result.rows.length > maxModelResultRows,
+  };
+}
+
 interface SemanticSearchMetric {
   name?: string;
   similarity?: number;
@@ -263,7 +275,12 @@ export function createAgentTools(
         user: dependencies.user,
       });
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(limitQueryResultForModel(result), null, 2),
+          },
+        ],
         details: result,
       };
     },
@@ -287,7 +304,12 @@ export function createAgentTools(
         user: dependencies.user,
       });
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(limitQueryResultForModel(result), null, 2),
+          },
+        ],
         details: result,
       };
     },

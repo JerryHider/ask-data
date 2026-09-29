@@ -122,6 +122,11 @@ class RagSpaceRequest(BaseModel):
     enabled: bool = False
 
 
+class RagDocRequest(BaseModel):
+    file_name: str = Field(min_length=1, max_length=255)
+    content: str = Field(min_length=1)
+
+
 class SkillRequest(BaseModel):
     name: str
     description: str
@@ -1214,6 +1219,17 @@ def list_rag_docs(space_id: int) -> list[dict[str, Any]]:
         } for doc in docs]
 
 
+def rag_doc_to_dict(doc: RagDoc) -> dict[str, Any]:
+    return {
+        'id': doc.id,
+        'space_id': doc.space_id,
+        'file_name': doc.file_name,
+        'chunk_count': doc.chunk_count,
+        'content': doc.content,
+        'created_at': doc.created_at.isoformat(),
+    }
+
+
 @app.post('/rag/spaces/{space_id}/docs', status_code=201)
 async def upload_rag_doc(space_id: int, file: UploadFile) -> dict[str, Any]:
     content_bytes = await file.read()
@@ -1242,6 +1258,29 @@ async def upload_rag_doc(space_id: int, file: UploadFile) -> dict[str, Any]:
         session.commit()
         session.refresh(doc)
         return {'id': doc.id, 'space_id': doc.space_id, 'file_name': doc.file_name, 'chunk_count': doc.chunk_count}
+
+
+@app.get('/rag/docs/{doc_id}')
+def get_rag_doc(doc_id: int) -> dict[str, Any]:
+    with SessionLocal() as session:
+        doc = session.get(RagDoc, doc_id)
+        if not doc:
+            raise HTTPException(status_code=404, detail='document not found')
+        return rag_doc_to_dict(doc)
+
+
+@app.put('/rag/docs/{doc_id}')
+def update_rag_doc(doc_id: int, request: RagDocRequest) -> dict[str, Any]:
+    with SessionLocal() as session:
+        doc = session.get(RagDoc, doc_id)
+        if not doc:
+            raise HTTPException(status_code=404, detail='document not found')
+        doc.file_name = request.file_name
+        doc.content = request.content
+        doc.chunk_count = max(1, (len(request.content) // 2000) + 1)
+        session.commit()
+        session.refresh(doc)
+        return rag_doc_to_dict(doc)
 
 
 @app.delete('/rag/docs/{doc_id}')

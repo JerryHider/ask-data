@@ -97,7 +97,13 @@ export function renderSemanticDescriptions(models: SemanticModelRecord[]): strin
 }
 
 export function fullAgentSystemPrompt(skillPrompt = '', semanticDescriptions = ''): string {
+  const today = new Date();
+  const currentDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(
+    today.getDate()
+  ).padStart(2, '0')}`;
+
   return [
+    `当前系统日期：${currentDate}；相对时间（如“去年”“上月”“本月”）必须基于该日期解析。`,
     '生成工具参数和最终答案前，必须先参考语义模型描述；描述中的业务口径、维度含义和计算说明优先于名称直觉。',
     '遇到以下情况时，立即停止推理并调用 clarify：',
     '- 范围歧义：用户问“分区域/分城市”时，上一轮实体的区域内细分（如湖北各市州）与实体外扩展（如全国各区域）均合理；',
@@ -110,6 +116,7 @@ export function fullAgentSystemPrompt(skillPrompt = '', semanticDescriptions = '
     'run_sql 只允许只读 SELECT/WITH；写操作、标记、删除、更新类请求必须明确拒绝并说明原因。',
     '结果必须说明来源：dbt 标准指标、临时 SQL 查询或知识库。',
     '如果指标字面或 synonyms 精确命中，并且预处理已给出过滤/分组条件，应直接 query_metric；未指定时间默认查询全部历史并在结果中说明。',
+    '查询区间无数据时，必须明确说明该区间无数据；禁止为了返回结果回退到其他年份。',
     '如果指标只是语义近似命中（例如“营收”近似“保费收入”），必须先 clarify 确认业务口径。',
     '处理包含代词、省略主语或省略时间的问题时，必须先从完整对话历史解析出明确的指标实体、过滤条件和时间范围，再把解析结果应用到工具参数。',
     '只有当当前问题和完整对话历史都无法确定必要实体或时间范围时，才调用 clarify；不要在历史已有答案时重复追问。',

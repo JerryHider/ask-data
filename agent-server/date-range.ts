@@ -30,6 +30,14 @@ export function parseDateRange(message: string, today = new Date()): DateRange {
     };
   }
 
+  if (message.includes('去年')) {
+    const previousYear = today.getFullYear() - 1;
+    return {
+      startTime: formatDate(new Date(previousYear, 0, 1)),
+      endTime: formatDate(new Date(previousYear, 11, 31)),
+    };
+  }
+
   if (message.includes('本月')) {
     return {
       startTime: formatDate(new Date(today.getFullYear(), today.getMonth(), 1)),

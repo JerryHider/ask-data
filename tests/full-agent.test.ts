@@ -45,6 +45,8 @@ describe('full agent ambiguity rules', () => {
   it('requires clarification for scope, granularity, and inheritance ambiguity', () => {
     const prompt = fullAgentSystemPrompt();
 
+    expect(prompt).toContain('当前系统日期：');
+    expect(prompt).toContain('相对时间（如“去年”“上月”“本月”）必须基于该日期解析');
     expect(prompt).toContain('立即停止推理并调用 clarify');
     expect(prompt).toContain('范围歧义');
     expect(prompt).toContain('粒度歧义');

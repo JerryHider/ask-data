@@ -61,6 +61,19 @@ export function toAgentMessages(history: SessionMessage[]): AgentMessage[] {
   });
 }
 
+function inheritedDateRange(message: string, history: SessionMessage[]) {
+  if (/全部历史|所有历史|历史累计/.test(message)) return {};
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const match = history[index].text.match(
+      /(\d{4}-\d{2}-\d{2})\s*(?:至|到)\s*(\d{4}-\d{2}-\d{2})/
+    );
+    if (match) {
+      return { startTime: match[1], endTime: match[2] };
+    }
+  }
+  return {};
+}
+
 export function renderSemanticDescriptions(models: SemanticModelRecord[]): string {
   const sections = models
     .map((model) => {
@@ -116,6 +129,7 @@ export function fullAgentSystemPrompt(skillPrompt = '', semanticDescriptions = '
     'run_sql 只允许只读 SELECT/WITH；写操作、标记、删除、更新类请求必须明确拒绝并说明原因。',
     '结果必须说明来源：dbt 标准指标、临时 SQL 查询或知识库。',
     '如果指标字面或 synonyms 精确命中，并且预处理已给出过滤/分组条件，应直接 query_metric；未指定时间默认查询全部历史并在结果中说明。',
+    '当当前问题省略时间且完整对话历史中已有明确时间范围时，必须继承该时间范围；只有历史中确实无时间范围时，才默认查询全部历史。',
     '查询区间无数据时，必须明确说明该区间无数据；禁止为了返回结果回退到其他年份。',
     '如果指标只是语义近似命中（例如“营收”近似“保费收入”），必须先 clarify 确认业务口径。',
     '处理包含代词、省略主语或省略时间的问题时，必须先从完整对话历史解析出明确的指标实体、过滤条件和时间范围，再把解析结果应用到工具参数。',
@@ -208,6 +222,9 @@ export async function runFullAgentFlow(request: FullAgentRequest): Promise<Sessi
     clarification,
   } = request;
   const requestId = randomUUID();
+  const effectivePreprocessed = preprocessed.startTime || preprocessed.endTime
+    ? preprocessed
+    : { ...preprocessed, ...inheritedDateRange(message, session.messages) };
   const requestStartedAt = Date.now();
   let lastOutputAt = Date.now();
   const writeSse = (event: string, data: unknown): void => {
@@ -243,10 +260,10 @@ export async function runFullAgentFlow(request: FullAgentRequest): Promise<Sessi
 
   const initialContext = [
     `用户问题：${message}`,
-    preprocessed.startTime ? `开始时间：${preprocessed.startTime}` : '',
-    preprocessed.endTime ? `结束时间：${preprocessed.endTime}` : '',
-    preprocessed.groupBy?.length ? `建议分组维度：${preprocessed.groupBy.join(',')}` : '',
-    preprocessed.where ? `建议过滤条件：${preprocessed.where}` : '',
+    effectivePreprocessed.startTime ? `开始时间：${effectivePreprocessed.startTime}` : '',
+    effectivePreprocessed.endTime ? `结束时间：${effectivePreprocessed.endTime}` : '',
+    effectivePreprocessed.groupBy?.length ? `建议分组维度：${effectivePreprocessed.groupBy.join(',')}` : '',
+    effectivePreprocessed.where ? `建议过滤条件：${effectivePreprocessed.where}` : '',
     clarification
       ? `用户对澄清问题“${clarification.question}”选择了：${clarification.selectedOption}`
       : '',
@@ -283,10 +300,10 @@ export async function runFullAgentFlow(request: FullAgentRequest): Promise<Sessi
           [
             fauxToolCall('query_metric', {
               metric: 'premium',
-              dimensions: preprocessed.groupBy,
-              where: preprocessed.where,
-              start_time: preprocessed.startTime,
-              end_time: preprocessed.endTime,
+              dimensions: effectivePreprocessed.groupBy,
+              where: effectivePreprocessed.where,
+              start_time: effectivePreprocessed.startTime,
+              end_time: effectivePreprocessed.endTime,
             }),
           ],
           { stopReason: 'toolUse' }

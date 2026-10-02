@@ -19,7 +19,16 @@ from sqlalchemy.exc import IntegrityError
 
 from models import Base, DbConnection, LlmConfig, RagDoc, RagSpace, SemanticModel, SessionLocal, Skill, SqlExample, Setting, engine
 from security import decrypt_secret, encrypt_secret
-from semantic import config_from_yaml, metric_yaml, semantic_model_yaml, validate_metric, validate_name, validate_semantic_model
+from semantic import (
+    config_from_yaml,
+    metric_yaml,
+    normalize_metric_type,
+    semantic_model_errors,
+    semantic_model_yaml,
+    validate_metric,
+    validate_name,
+    validate_semantic_model,
+)
 from dependencies import dependent_metric_configs, is_non_breaking_semantic_model_update
 from templates import TEMPLATES, template_by_id
 
@@ -278,6 +287,8 @@ def dependent_models(session: Any, model: SemanticModel) -> list[SemanticModel]:
             )
             .all()
         )
+
+
         metric_configs = [json.loads(item.config) for item in metric_models]
         dependent_names = {
             str(item.get('name'))
@@ -301,6 +312,51 @@ def dependent_models(session: Any, model: SemanticModel) -> list[SemanticModel]:
         if model.name in references:
             dependents.append(candidate)
     return dependents
+
+
+def semantic_model_publish_errors(model_name: str, config: dict[str, Any]) -> list[dict[str, Any]]:
+    source_table = str(config.get('source_table') or '').strip()
+    columns = table_columns(source_table) if source_table else []
+    source_exists = bool(columns)
+    errors = semantic_model_errors(
+        config,
+        {item['COLUMN_NAME'] for item in columns},
+        check_columns=source_exists,
+    )
+    if str(config.get('name') or '') != model_name:
+        errors.insert(0, {
+            'field': 'name',
+            'index': None,
+            'item_field': None,
+            'message': '语义模型名必须与入库模型名一致',
+        })
+    if source_table and not source_exists:
+        errors.insert(0, {
+            'field': 'source_table',
+            'index': None,
+            'item_field': None,
+            'message': '源表不存在：' + source_table,
+        })
+    if source_exists:
+        model_path = USER_MODELS_DIR / (str(config.get('model_name') or '') + '.sql')
+        if not model_path.exists():
+            errors.append({
+                'field': 'model_name',
+                'index': None,
+                'item_field': None,
+                'message': 'dbt 模型文件不存在：' + model_path.name,
+            })
+    return errors
+
+
+def structured_validation_http_error(errors: list[dict[str, Any]]) -> HTTPException:
+    return HTTPException(
+        status_code=422,
+        detail={
+            'message': f'语义模型基础层存在 {len(errors)} 项错误，请按标红字段修正',
+            'errors': errors,
+        },
+    )
 
 
 def blocking_semantic_model_update(
@@ -410,7 +466,14 @@ async def call_service(url: str) -> None:
     async with httpx.AsyncClient(timeout=90) as client:
         response = await client.post(url, json={})
         if response.status_code >= 400:
-            raise RuntimeError(url + ' failed: ' + str(response.status_code))
+            detail = response.text
+            if response.headers.get('content-type', '').startswith('application/json'):
+                payload = response.json()
+                message = str(payload.get('message', ''))
+                hint = str(payload.get('hint', ''))
+                hint = re.sub(r'\x1b\[[0-9;]*m', '', hint).strip()
+                detail = '：'.join(part for part in (message, hint) if part)
+            raise RuntimeError(f'{url} failed: {response.status_code}：{detail}')
 
 
 @app.on_event('startup')
@@ -444,13 +507,20 @@ def list_models(status: str | None = None) -> list[dict[str, Any]]:
 def create_model(request: CreateModelRequest) -> dict[str, Any]:
     if not template_by_id(request.template_id):
         raise HTTPException(status_code=422, detail='template_id is invalid')
-    name = str(request.config.get('name', '')).strip()
+    config = request.config
+    metric_type = TEMPLATE_METRIC_TYPES.get(request.template_id)
+    if metric_type:
+        try:
+            config = normalize_metric_type(config, metric_type)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    name = str(config.get('name', '')).strip()
     validate_name(name)
     model = SemanticModel(
         name=name,
         template_id=request.template_id,
         status='draft',
-        config=json.dumps(request.config, ensure_ascii=False),
+        config=json.dumps(config, ensure_ascii=False),
     )
     with SessionLocal() as session:
         session.add(model)
@@ -479,6 +549,13 @@ async def update_model(model_id: int, request: UpdateModelRequest) -> dict[str, 
         model = session.get(SemanticModel, model_id)
         if not model:
             raise HTTPException(status_code=404, detail='semantic model not found')
+        config = request.config
+        metric_type = TEMPLATE_METRIC_TYPES.get(model.template_id)
+        if metric_type:
+            try:
+                config = normalize_metric_type(config, metric_type)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         if model.status == 'published':
             blocking = blocking_semantic_model_update(session, model, request.config)
             if blocking:
@@ -487,7 +564,9 @@ async def update_model(model_id: int, request: UpdateModelRequest) -> dict[str, 
                 yaml_path = semantic_yaml_path(model.name)
                 previous_yaml = yaml_path.read_text(encoding='utf-8') if yaml_path.exists() else None
                 try:
-                    validate_semantic_config(model.template_id, request.config)
+                    validation_errors = semantic_model_publish_errors(model.name, request.config)
+                    if validation_errors:
+                        raise structured_validation_http_error(validation_errors)
                     yaml_path.write_text(
                         semantic_config_yaml(model.template_id, request.config),
                         encoding='utf-8',
@@ -495,6 +574,19 @@ async def update_model(model_id: int, request: UpdateModelRequest) -> dict[str, 
                     model.config = json.dumps(request.config, ensure_ascii=False)
                     await call_service(METRICFLOW_BRIDGE_URL + '/reparse')
                     await call_service(ARTIFACT_PARSER_URL + '/sync')
+                except HTTPException as exc:
+                    if previous_yaml is None:
+                        yaml_path.unlink(missing_ok=True)
+                    else:
+                        yaml_path.write_text(previous_yaml, encoding='utf-8')
+                    if isinstance(exc.detail, dict) and isinstance(exc.detail.get('errors'), list):
+                        model.error_message = '\n'.join(
+                            str(item.get('message', '')) for item in exc.detail['errors']
+                        )
+                    else:
+                        model.error_message = str(exc.detail)
+                    session.commit()
+                    raise exc
                 except ValueError as exc:
                     if previous_yaml is None:
                         yaml_path.unlink(missing_ok=True)
@@ -514,7 +606,7 @@ async def update_model(model_id: int, request: UpdateModelRequest) -> dict[str, 
                 return model_to_dict(model)
         was_published = model.status == 'published'
         yaml_path = semantic_yaml_path(model.name)
-        model.config = json.dumps(request.config, ensure_ascii=False)
+        model.config = json.dumps(config, ensure_ascii=False)
         if model.status == 'published':
             model.status = 'draft'
             if yaml_path.exists():
@@ -541,18 +633,28 @@ async def publish_model(model_id: int) -> dict[str, Any]:
         if not model:
             raise HTTPException(status_code=404, detail='semantic model not found')
         config = json.loads(model.config)
-        if str(config.get('name', '')) != model.name:
-            raise HTTPException(status_code=422, detail='config.name must match model name')
+        metric_type = TEMPLATE_METRIC_TYPES.get(model.template_id)
+        if metric_type:
+            try:
+                config = normalize_metric_type(config, metric_type)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         yaml_path = semantic_yaml_path(model.name)
         previous_yaml = yaml_path.read_text(encoding='utf-8') if yaml_path.exists() else None
         try:
-            validate_name(model.name)
-            validate_semantic_config(model.template_id, config)
+            if model.template_id == 'semantic-model':
+                validation_errors = semantic_model_publish_errors(model.name, config)
+                if validation_errors:
+                    raise structured_validation_http_error(validation_errors)
+            else:
+                validate_name(model.name)
+                validate_semantic_config(model.template_id, config)
             yaml_path.write_text(semantic_config_yaml(model.template_id, config), encoding='utf-8')
             await call_service(METRICFLOW_BRIDGE_URL + '/reparse')
             await call_service(ARTIFACT_PARSER_URL + '/sync')
             model.status = 'published'
             model.yaml_path = str(yaml_path)
+            model.config = json.dumps(config, ensure_ascii=False)
             model.error_message = None
             session.commit()
             session.refresh(model)
@@ -560,7 +662,12 @@ async def publish_model(model_id: int) -> dict[str, Any]:
             return model_to_dict(model)
         except HTTPException as exc:
             model.status = 'draft'
-            model.error_message = str(exc.detail)
+            if isinstance(exc.detail, dict) and isinstance(exc.detail.get('errors'), list):
+                model.error_message = '\n'.join(
+                    str(item.get('message', '')) for item in exc.detail['errors']
+                )
+            else:
+                model.error_message = str(exc.detail)
             session.commit()
             raise exc
         except Exception as exc:

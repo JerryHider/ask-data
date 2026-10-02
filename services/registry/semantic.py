@@ -60,7 +60,7 @@ def semantic_model_yaml(config: dict[str, Any]) -> str:
             measure["description"] = item["description"]
         if item.get("agg_time_dimension"):
             measure["agg_time_dimension"] = item["agg_time_dimension"]
-        if item.get("percentile") is not None:
+        if item.get("agg") == "percentile" and item.get("percentile") not in (None, ""):
             measure["agg_params"] = {
                 "percentile": float(item["percentile"]),
                 "use_discrete_percentile": bool(item.get("use_discrete_percentile", False)),
@@ -130,8 +130,6 @@ def metric_yaml(config: dict[str, Any]) -> str:
                 ]
             } if config.get("constant_properties") else {}),
         }
-    if config.get("join_to_timespine") is not None:
-        type_params["join_to_timespine"] = bool(config["join_to_timespine"])
     if config.get("fill_nulls_with") not in (None, ""):
         value = config["fill_nulls_with"]
         type_params["fill_nulls_with"] = int(value) if str(value).lstrip("-").isdigit() else value
@@ -248,61 +246,145 @@ def validate_name(name: str) -> None:
         raise ValueError("名称必须匹配 ^[a-z][a-z0-9_]{0,59}$")
 
 
-def _validate_expression(value: str, column_names: set[str], label: str) -> None:
+def normalize_metric_type(config: dict[str, Any], metric_type: str) -> dict[str, Any]:
+    current_type = config.get("type")
+    if current_type in (None, ""):
+        return {**config, "type": metric_type}
+    if current_type != metric_type:
+        raise ValueError(f"指标类型必须是 {metric_type}，当前为 {current_type}")
+    return config
+
+
+def _expression_errors(value: str, column_names: set[str], label: str) -> list[str]:
     if not value:
-        raise ValueError(f"{label}不能为空")
+        return [f"{label}不能为空"]
     if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
-        if value not in column_names:
-            raise ValueError(f"{label}引用的列不存在：{value}")
-        return
+        return [] if value in column_names else [f"{label}引用的列不存在：{value}"]
     identifiers = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", value))
     missing = sorted(identifiers - column_names - SQL_KEYWORDS)
-    if missing:
-        raise ValueError(f"{label}引用的列不存在：{', '.join(missing)}")
+    return [f"{label}引用的列不存在：{', '.join(missing)}"] if missing else []
 
 
-def validate_semantic_model(config: dict[str, Any], column_names: set[str]) -> None:
-    validate_name(str(config.get("name", "")))
-    validate_name(str(config.get("model_name", "")))
+def semantic_model_errors(
+    config: dict[str, Any],
+    column_names: set[str],
+    *,
+    check_columns: bool = True,
+) -> list[dict[str, Any]]:
+    errors: list[dict[str, Any]] = []
+
+    def add(
+        field: str,
+        message: str,
+        index: int | None = None,
+        item_field: str | None = None,
+    ) -> None:
+        errors.append(
+            {
+                "field": field,
+                "index": index,
+                "item_field": item_field,
+                "message": message,
+            }
+        )
+
+    name = str(config.get("name") or "")
+    model_name = str(config.get("model_name") or "")
+    if not name:
+        add("name", "语义模型名不能为空")
+    elif not NAME_PATTERN.fullmatch(name):
+        add("name", "语义模型名必须匹配 ^[a-z][a-z0-9_]{0,59}$")
+    if not model_name:
+        add("model_name", "dbt 模型名不能为空")
+    elif not NAME_PATTERN.fullmatch(model_name):
+        add("model_name", "dbt 模型名必须匹配 ^[a-z][a-z0-9_]{0,59}$")
     if not config.get("source_table"):
-        raise ValueError("源表不能为空")
+        add("source_table", "源表不能为空")
+
     time_dimensions = {
         item.get("name")
         for item in config.get("dimensions", [])
         if item.get("type") == "time"
     }
     if config.get("agg_time_dimension") not in time_dimensions:
-        raise ValueError("默认时间轴必须是已声明的时间维度")
-    element_names: set[str] = set()
-    for item in config.get("entities", []):
-        if not item.get("name") or not item.get("type") or not item.get("expr"):
-            raise ValueError("实体名、类型和物理列均不能为空")
-        if item["name"] in element_names:
-            raise ValueError(f"实体或维度名称重复：{item['name']}")
-        element_names.add(item["name"])
-        if item["expr"] not in column_names:
-            raise ValueError(f"实体引用的列不存在：{item['expr']}")
-    for item in config.get("dimensions", []):
-        if not item.get("name") or not item.get("type"):
-            raise ValueError("维度名和类型不能为空")
-        if item["name"] in element_names:
-            raise ValueError(f"实体或维度名称重复：{item['name']}")
-        element_names.add(item["name"])
-        expr = item.get("expr") or item["name"]
-        if expr not in column_names:
-            raise ValueError(f"维度引用的列不存在：{expr}")
-        if item["type"] == "time" and not item.get("time_granularity"):
-            raise ValueError(f"时间维度必须声明时间粒度：{item['name']}")
-    measure_names: set[str] = set()
-    for item in config.get("measures", []):
-        if not item.get("name") or not item.get("agg") or not item.get("expr"):
-            raise ValueError("度量名、聚合方式和表达式不能为空")
-        if item["name"] in measure_names:
-            raise ValueError(f"度量名称重复：{item['name']}")
-        measure_names.add(item["name"])
-        _validate_expression(str(item["expr"]), column_names, f"度量 {item['name']}")
-        if item.get("agg") == "percentile" and item.get("percentile") in (None, ""):
-            raise ValueError(f"percentile 度量必须填写 percentile：{item['name']}")
+        add("agg_time_dimension", "默认时间轴必须是已声明的时间维度")
+
+    element_locations: dict[str, tuple[str, int]] = {}
+
+    def check_duplicate(
+        locations: dict[str, tuple[str, int]],
+        value: str,
+        field: str,
+        index: int,
+        label: str,
+    ) -> None:
+        previous = locations.get(value)
+        if previous and previous != (field, index):
+            previous_field, previous_index = previous
+            add(previous_field, f"{label}名称重复：{value}", previous_index, "name")
+            add(field, f"{label}名称重复：{value}", index, "name")
+        elif not previous:
+            locations[value] = (field, index)
+
+    for index, item in enumerate(config.get("entities", [])):
+        if not item.get("name"):
+            add("entities", "实体名不能为空", index, "name")
+        if not item.get("type"):
+            add("entities", "实体类型不能为空", index, "type")
+        if not item.get("expr"):
+            add("entities", "物理列不能为空", index, "expr")
+        if item.get("name"):
+            check_duplicate(element_locations, str(item["name"]), "entities", index, "语义元素")
+        if check_columns and item.get("expr") and item["expr"] not in column_names:
+            add("entities", f"实体引用的列不存在：{item['expr']}", index, "expr")
+
+    for index, item in enumerate(config.get("dimensions", [])):
+        if not item.get("name"):
+            add("dimensions", "维度名不能为空", index, "name")
+        if not item.get("type"):
+            add("dimensions", "维度类型不能为空", index, "type")
+        if item.get("name"):
+            check_duplicate(element_locations, str(item["name"]), "dimensions", index, "语义元素")
+        expr = str(item.get("expr") or item.get("name") or "")
+        if check_columns and expr and expr not in column_names:
+            add("dimensions", f"维度引用的列不存在：{expr}", index, "expr")
+        if item.get("type") == "time" and not item.get("time_granularity"):
+            add("dimensions", f"时间维度必须声明时间粒度：{item.get('name', index + 1)}", index, "time_granularity")
+
+    for index, item in enumerate(config.get("measures", [])):
+        if not item.get("name"):
+            add("measures", "度量名不能为空", index, "name")
+        if not item.get("agg"):
+            add("measures", "聚合方式不能为空", index, "agg")
+        if not item.get("expr"):
+            add("measures", "列或表达式不能为空", index, "expr")
+        if item.get("name"):
+            check_duplicate(element_locations, str(item["name"]), "measures", index, "语义元素")
+        if check_columns and item.get("expr"):
+            for message in _expression_errors(
+                str(item["expr"]), column_names, f"度量 {item.get('name', index + 1)}"
+            ):
+                add("measures", message, index, "expr")
+        if item.get("agg") == "percentile":
+            percentile = item.get("percentile")
+            if percentile in (None, ""):
+                add("measures", f"percentile 度量必须填写 percentile：{item.get('name', index + 1)}", index, "percentile")
+            else:
+                try:
+                    percentile_value = float(percentile)
+                except (TypeError, ValueError):
+                    add("measures", f"percentile 必须是数字：{item.get('name', index + 1)}", index, "percentile")
+                else:
+                    if not 0 <= percentile_value <= 1:
+                        add("measures", f"percentile 必须在 0 到 1 之间：{item.get('name', index + 1)}", index, "percentile")
+
+    return errors
+
+
+def validate_semantic_model(config: dict[str, Any], column_names: set[str]) -> None:
+    errors = semantic_model_errors(config, column_names)
+    if errors:
+        raise ValueError(str(errors[0]["message"]))
 
 
 def validate_metric(

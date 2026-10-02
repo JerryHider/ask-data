@@ -204,23 +204,71 @@ def semantic_models_for_metric(
     ]
 
 
+def joinable_semantic_models_for_metric(
+    semantic_manifest: dict[str, Any], metric_name: str
+) -> list[dict[str, Any]]:
+    models_by_name = {
+        semantic_model.get("name", ""): semantic_model
+        for semantic_model in semantic_manifest.get("semantic_models", [])
+    }
+    models_by_entity: dict[str, list[str]] = {}
+    for semantic_model in semantic_manifest.get("semantic_models", []):
+        for entity in semantic_model.get("entities", []):
+            entity_name = entity.get("name")
+            if entity_name:
+                models_by_entity.setdefault(str(entity_name), []).append(
+                    str(semantic_model.get("name", ""))
+                )
+
+    queue = [
+        str(model.get("name", ""))
+        for model in semantic_models_for_metric(semantic_manifest, metric_name)
+    ]
+    visited = set(queue)
+    while queue:
+        model_name = queue.pop(0)
+        semantic_model = models_by_name.get(model_name)
+        if not semantic_model:
+            continue
+        for entity in semantic_model.get("entities", []):
+            entity_name = entity.get("name")
+            if not entity_name:
+                continue
+            for connected_name in models_by_entity.get(str(entity_name), []):
+                if connected_name not in visited:
+                    visited.add(connected_name)
+                    queue.append(connected_name)
+    return [models_by_name[name] for name in visited if name in models_by_name]
+
+
 def dimensions_for_metric(
     semantic_manifest: dict[str, Any], metric_name: str
 ) -> list[str]:
     dimensions: set[str] = set()
-    for semantic_model in semantic_models_for_metric(semantic_manifest, metric_name):
-        dimensions.update(
-            dimension.get("name")
-            for dimension in semantic_model.get("dimensions", [])
-            if dimension.get("name")
-        )
+    for semantic_model in joinable_semantic_models_for_metric(
+        semantic_manifest, metric_name
+    ):
+        primary_entities = [
+            entity.get("name")
+            for entity in semantic_model.get("entities", [])
+            if entity.get("type") == "primary" and entity.get("name")
+        ]
+        for dimension in semantic_model.get("dimensions", []):
+            dimension_name = dimension.get("name")
+            if not dimension_name:
+                continue
+            dimensions.add(str(dimension_name))
+            if primary_entities:
+                dimensions.add(f"{primary_entities[0]}__{dimension_name}")
     return sorted(dimensions)
 
 
 def qualified_group_by(
     semantic_manifest: dict[str, Any], metric_name: str, requested: str
 ) -> str:
-    for semantic_model in semantic_models_for_metric(semantic_manifest, metric_name):
+    for semantic_model in joinable_semantic_models_for_metric(
+        semantic_manifest, metric_name
+    ):
         primary_entities = [
             entity.get("name")
             for entity in semantic_model.get("entities", [])

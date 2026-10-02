@@ -1,0 +1,105 @@
+version: 2
+semantic_models:
+- name: employee_info
+  model: ref('employee_info')
+  defaults:
+    agg_time_dimension: effective_date
+  entities:
+  - name: policy_no
+    type: foreign
+    expr: policy_no
+  - name: id
+    type: primary
+    expr: id
+  - name: order
+    type: foreign
+    expr: order_id
+  - name: price_ref
+    type: foreign
+    expr: price_id
+  - name: unit
+    type: foreign
+    expr: unit_id
+  - name: pla_employee
+    type: foreign
+    expr: pla_employee_id
+  - name: sub_order
+    type: foreign
+    expr: sub_order_id
+  - name: record
+    type: foreign
+    expr: record_id
+  - name: profession
+    type: foreign
+    expr: profession_id
+  - name: product
+    type: foreign
+    expr: product_id
+  - name: new_price
+    type: foreign
+    expr: new_price_id
+  - name: change
+    type: foreign
+    expr: change_id
+  dimensions:
+  - name: has_social
+    type: categorical
+    expr: has_social
+    description: null或0表示没有，1表示有
+  - name: sex
+    type: categorical
+    expr: sex
+    description: 性别编码：1=男，2=女
+  - name: insure_money
+    type: categorical
+    expr: insure_money
+    description: 保额
+  - name: effective_date
+    type: time
+    expr: effective_date
+    type_params:
+      time_granularity: day
+  - name: expiry_date
+    type: time
+    expr: expiry_date
+    type_params:
+      time_granularity: day
+  - name: birthday
+    type: time
+    expr: birthday
+    type_params:
+      time_granularity: day
+  - name: remark
+    type: categorical
+    expr: remark
+  - name: bank_trans_no
+    type: categorical
+    expr: bank_trans_no
+  - name: created_time
+    type: time
+    expr: created_time
+    type_params:
+      time_granularity: day
+  - name: updated_time
+    type: time
+    expr: updated_time
+    type_params:
+      time_granularity: day
+  measures:
+  - name: emp_id_no_crypt
+    agg: count_distinct
+    expr: emp_id_no_crypt
+    description: 按照身份证号统计的投保人次
+  - name: price
+    agg: sum
+    expr: price
+    description: 保费，求出的总和要除以100才是对应的真实保费
+  - name: fee_rate
+    agg: sum
+    expr: fee_rate
+    description: 费率
+  - name: person_premium_amount
+    agg: sum
+    expr: price / 100.0
+    description: 按投保人员明细统计的保费，单位元。
+  description: 人员信息表，对应的是insurance_order中投保人员的信息

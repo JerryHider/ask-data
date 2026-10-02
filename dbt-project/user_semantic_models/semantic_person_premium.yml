@@ -1,0 +1,17 @@
+version: 2
+metrics:
+- name: person_premium
+  label: 人员投保保费
+  description: 按投保人员明细统计的保费，适合按性别、地区等人员相关维度分析。
+  type: simple
+  type_params:
+    measure: person_premium_amount
+  config:
+    meta:
+      synonyms:
+      - 投保保费
+      - 人员保费
+      - 分性别保费
+      - 性别保费
+      - 男性投保保费
+      - 女性投保保费

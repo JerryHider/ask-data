@@ -14,6 +14,19 @@ export interface SemanticModelRecord {
 }
 
 type Values = Record<string, unknown>;
+type FieldErrors = Record<string, string>;
+
+interface StructuredFieldError {
+  field: string;
+  index?: number | null;
+  item_field?: string | null;
+  message: string;
+}
+
+interface StructuredErrorDetail {
+  message?: string;
+  errors?: StructuredFieldError[];
+}
 
 function defaultValue(field: TemplateField): unknown {
   if (field.type === 'array') return [];
@@ -27,13 +40,15 @@ function ScalarField({
   field,
   value,
   onChange,
+  error,
 }: {
   field: TemplateField;
   value: unknown;
   onChange: (value: unknown) => void;
+  error?: string;
 }) {
   const label = (
-    <span>
+    <span className={error ? 'text-red-600' : undefined}>
       {field.label}
       {field.required ? <span className='text-red-500'> *</span> : null}
     </span>
@@ -55,16 +70,21 @@ function ScalarField({
   return (
     <label className='grid gap-1 text-xs font-medium text-slate-600'>
       {label}
+      {error ? <span className='text-[11px] font-normal text-red-600'>{error}</span> : null}
       {field.type === 'textarea' ? (
         <textarea
-          className='rounded border border-slate-300 p-2 text-sm font-normal'
+          className={`rounded border p-2 text-sm font-normal ${
+            error ? 'border-red-500 bg-red-50 focus:border-red-500' : 'border-slate-300'
+          }`}
           rows={3}
           value={String(value ?? '')}
           onChange={(event) => onChange(event.target.value)}
         />
       ) : field.type === 'select' ? (
         <select
-          className='rounded border border-slate-300 p-2 text-sm font-normal'
+          className={`rounded border p-2 text-sm font-normal ${
+            error ? 'border-red-500 bg-red-50 focus:border-red-500' : 'border-slate-300'
+          }`}
           value={String(value ?? '')}
           onChange={(event) => onChange(event.target.value)}
         >
@@ -78,7 +98,9 @@ function ScalarField({
       ) : (
         <input
           type='text'
-          className='rounded border border-slate-300 p-2 text-sm font-normal'
+          className={`rounded border p-2 text-sm font-normal ${
+            error ? 'border-red-500 bg-red-50 focus:border-red-500' : 'border-slate-300'
+          }`}
           value={String(value ?? '')}
           onChange={(event) => onChange(event.target.value)}
         />
@@ -91,10 +113,14 @@ function ArrayField({
   field,
   value,
   onChange,
+  error,
+  itemError,
 }: {
   field: TemplateField;
   value: unknown;
   onChange: (value: unknown) => void;
+  error?: string;
+  itemError: (index: number, key: string) => string | undefined;
 }) {
   const items = Array.isArray(value) ? (value as Values[]) : [];
 
@@ -111,10 +137,14 @@ function ArrayField({
   }
 
   return (
-    <section className='grid gap-2 rounded border border-slate-200 p-3'>
+    <section
+      className={`grid gap-2 rounded border p-3 ${
+        error ? 'border-red-500 bg-red-50' : 'border-slate-200'
+      }`}
+    >
       <div className='flex items-center justify-between'>
         <span className='text-xs font-semibold text-slate-700'>
-          {field.label}
+          <span className={error ? 'text-red-600' : undefined}>{field.label}</span>
           {field.required ? <span className='text-red-500'> *</span> : null}
         </span>
         <button
@@ -126,10 +156,19 @@ function ArrayField({
         </button>
       </div>
       {items.length === 0 ? (
-        <p className='text-xs text-slate-400'>暂无条目</p>
+        <p className={`text-xs ${error ? 'text-red-600' : 'text-slate-400'}`}>
+          {error ?? '暂无条目'}
+        </p>
       ) : null}
       {items.map((item, index) => (
-        <div key={index} className='grid gap-2 rounded bg-slate-50 p-3'>
+        <div
+          key={index}
+          className={`grid gap-2 rounded p-3 ${
+            (field.item_fields ?? []).some((itemField) => itemError(index, itemField.key))
+              ? 'bg-red-50 ring-1 ring-red-200'
+              : 'bg-slate-50'
+          }`}
+        >
           <div className='flex justify-end'>
             <button
               type='button'
@@ -146,6 +185,7 @@ function ArrayField({
                 field={itemField}
                 value={item[itemField.key]}
                 onChange={(itemValue) => updateItem(index, itemField.key, itemValue)}
+                error={itemError(index, itemField.key)}
               />
             ))}
           </div>
@@ -159,16 +199,24 @@ function StringArrayField({
   field,
   value,
   onChange,
+  error,
 }: {
   field: TemplateField;
   value: unknown;
   onChange: (value: unknown) => void;
+  error?: string;
 }) {
   const items = Array.isArray(value) ? value.map(String) : [];
   return (
-    <section className='grid gap-2 rounded border border-slate-200 p-3'>
+    <section
+      className={`grid gap-2 rounded border p-3 ${
+        error ? 'border-red-500 bg-red-50' : 'border-slate-200'
+      }`}
+    >
       <div className='flex items-center justify-between'>
-        <span className='text-xs font-semibold text-slate-700'>{field.label}</span>
+        <span className={`text-xs font-semibold ${error ? 'text-red-600' : 'text-slate-700'}`}>
+          {field.label}
+        </span>
         <button
           type='button'
           onClick={() => onChange([...items, ''])}
@@ -180,7 +228,9 @@ function StringArrayField({
       {items.map((item, index) => (
         <div key={index} className='flex gap-2'>
           <input
-            className='flex-1 rounded border border-slate-300 p-2 text-sm'
+            className={`flex-1 rounded border p-2 text-sm ${
+              error ? 'border-red-500 bg-white focus:border-red-500' : 'border-slate-300'
+            }`}
             value={item}
             onChange={(event) =>
               onChange(items.map((value, itemIndex) => itemIndex === index ? event.target.value : value))
@@ -219,34 +269,83 @@ export default function ModelEditorModal({
   }, [model, template.fields]);
   const [values, setValues] = useState<Values>(initial);
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [saving, setSaving] = useState(false);
 
   function update(key: string, value: unknown) {
     setValues((previous) => ({ ...previous, [key]: value }));
+    setFieldErrors((previous) => {
+      const next = { ...previous };
+      delete next[key];
+      for (const errorKey of Object.keys(next)) {
+        if (errorKey.startsWith(`${key}.`)) delete next[errorKey];
+      }
+      return next;
+    });
   }
 
-  function validate() {
+  function validate(): FieldErrors {
+    const errors: FieldErrors = {};
     for (const field of template.fields) {
       const value = values[field.key];
-      if (!field.required) continue;
-      if (field.type === 'array' && (!Array.isArray(value) || value.length === 0)) {
-        return `${field.label}不能为空`;
+      if (field.required && field.type === 'array' && (!Array.isArray(value) || value.length === 0)) {
+        errors[field.key] = `${field.label}不能为空`;
       }
-      if (field.type !== 'array' && field.type !== 'boolean' && !String(value ?? '').trim()) {
-        return `${field.label}不能为空`;
+      if (
+        field.required &&
+        field.type !== 'array' &&
+        field.type !== 'boolean' &&
+        !String(value ?? '').trim()
+      ) {
+        errors[field.key] = `${field.label}不能为空`;
+      }
+      if (field.type === 'array' && Array.isArray(value)) {
+        (value as Values[]).forEach((item, index) => {
+          for (const itemField of field.item_fields ?? []) {
+            if (itemField.required && !String(item[itemField.key] ?? '').trim()) {
+              errors[`${field.key}.${index}.${itemField.key}`] = `${itemField.label}不能为空`;
+            }
+          }
+        });
       }
     }
-    return '';
+    return errors;
+  }
+
+  function applyBackendError(detail: unknown): string {
+    if (typeof detail === 'string') return detail;
+    if (typeof detail === 'object' && detail !== null) {
+      const structured = detail as StructuredErrorDetail;
+      if (Array.isArray(structured.errors)) {
+        setFieldErrors(
+          Object.fromEntries(
+            structured.errors
+              .filter((item) => item.field)
+              .map((item) => [
+                item.index === null || item.index === undefined || !item.item_field
+                  ? item.field
+                  : `${item.field}.${item.index}.${item.item_field}`,
+                item.message,
+              ])
+          )
+        );
+        return structured.message ?? `存在 ${structured.errors.length} 项错误，请按标红字段修正`;
+      }
+      if (structured.message) return structured.message;
+    }
+    return '保存失败';
   }
 
   async function save(publish: boolean) {
-    const validationError = validate();
-    if (validationError) {
-      setError(validationError);
+    const validationErrors = validate();
+    if (Object.keys(validationErrors).length) {
+      setFieldErrors(validationErrors);
+      setError(`存在 ${Object.keys(validationErrors).length} 项错误，请按标红字段修正`);
       return;
     }
     setSaving(true);
     setError('');
+    setFieldErrors({});
     try {
       const payload: Values = {};
       for (const field of template.fields) {
@@ -262,19 +361,25 @@ export default function ModelEditorModal({
           ),
         }
       );
-      const saved = (await response.json()) as SemanticModelRecord & { detail?: string };
-      if (!response.ok) throw new Error(saved.detail || saved.error_message || '保存失败');
+      const saved = (await response.json()) as SemanticModelRecord & { detail?: unknown };
+      if (!response.ok) {
+        setError(applyBackendError(saved.detail || saved.error_message));
+        return;
+      }
       if (publish) {
         const publishResponse = await fetch(`/api/registry/semantic-models/${saved.id}/publish`, {
           method: 'POST',
         });
-        const publishResult = (await publishResponse.json()) as { detail?: string };
-        if (!publishResponse.ok) throw new Error(publishResult.detail || '发布失败');
+        const publishResult = (await publishResponse.json()) as { detail?: unknown };
+        if (!publishResponse.ok) {
+          setError(applyBackendError(publishResult.detail));
+          return;
+        }
       }
       await onSaved();
       onClose();
     } catch (caught) {
-      setError((caught as Error).message);
+      setError((caught as Error).message || '保存失败');
     } finally {
       setSaving(false);
     }
@@ -305,6 +410,8 @@ export default function ModelEditorModal({
                 field={field}
                 value={values[field.key]}
                 onChange={(value) => update(field.key, value)}
+                error={fieldErrors[field.key]}
+                itemError={(index, key) => fieldErrors[`${field.key}.${index}.${key}`]}
               />
             ) : field.type === 'string_array' ? (
               <StringArrayField
@@ -312,6 +419,7 @@ export default function ModelEditorModal({
                 field={field}
                 value={values[field.key]}
                 onChange={(value) => update(field.key, value)}
+                error={fieldErrors[field.key]}
               />
             ) : (
               <ScalarField
@@ -323,7 +431,18 @@ export default function ModelEditorModal({
             )
           )}
         </div>
-        {error ? <div className='bg-red-50 px-4 py-2 text-sm text-red-700'>{error}</div> : null}
+        {error ? (
+          <div className='bg-red-50 px-4 py-2 text-sm text-red-700'>
+            <div className='font-semibold'>{error}</div>
+            {Object.keys(fieldErrors).length ? (
+              <ul className='mt-1 list-inside list-disc text-xs'>
+                {Object.entries(fieldErrors).map(([key, message]) => (
+                  <li key={key}>{message}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
         <footer className='flex justify-end gap-2 border-t p-4'>
           <button
             type='button'

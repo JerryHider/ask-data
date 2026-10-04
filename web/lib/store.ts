@@ -61,11 +61,13 @@ interface AskDataState {
   logs: string[];
   skillTestId: string | null;
   skillTestName: string | null;
+  chatDraft: string;
   dataQuerySql: string;
   dataQueryResult: QueryResult | null;
   dataQuerySelectedTable: DataQueryTable | null;
   setActiveModule: (module: ModuleKey) => void;
   setActiveSettingsSection: (section: SettingsSectionKey) => void;
+  setChatDraft: (draft: string) => void;
   setDataQuerySql: (sql: string) => void;
   setDataQueryResult: (result: QueryResult | null) => void;
   setDataQuerySelectedTable: (table: DataQueryTable | null) => void;
@@ -124,11 +126,13 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
   logs: [],
   skillTestId: null,
   skillTestName: null,
+  chatDraft: '',
   dataQuerySql: '',
   dataQueryResult: null,
   dataQuerySelectedTable: null,
   setActiveModule: (activeModule) => set({ activeModule }),
   setActiveSettingsSection: (activeSettingsSection) => set({ activeSettingsSection }),
+  setChatDraft: (chatDraft) => set({ chatDraft }),
   setDataQuerySql: (dataQuerySql) => set({ dataQuerySql }),
   setDataQueryResult: (dataQueryResult) => set({ dataQueryResult }),
   setDataQuerySelectedTable: (dataQuerySelectedTable) => set({ dataQuerySelectedTable }),

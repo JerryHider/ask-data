@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
 import { useAskDataStore } from '../../lib/store';
 
 export default function InputBox() {
-  const [value, setValue] = useState('');
   const streaming = useAskDataStore((state) => state.streaming);
+  const value = useAskDataStore((state) => state.chatDraft);
+  const setValue = useAskDataStore((state) => state.setChatDraft);
   const sendMessage = useAskDataStore((state) => state.sendMessage);
   const createSession = useAskDataStore((state) => state.createSession);
   const skillTestName = useAskDataStore((state) => state.skillTestName);

@@ -1,6 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
+import type { SettingsSectionKey } from './settings';
 
 export type ModuleKey = 'tasks' | 'semantic' | 'ingest' | 'settings';
 export type ChatRole = 'user' | 'assistant' | 'clarify' | 'tool';
@@ -43,8 +44,11 @@ export interface SessionSummary {
   updatedAt: string;
 }
 
+export type { SettingsSectionKey };
+
 interface AskDataState {
   activeModule: ModuleKey;
+  activeSettingsSection: SettingsSectionKey;
   activeSessionId: string | null;
   sessions: SessionSummary[];
   messages: ChatMessage[];
@@ -61,6 +65,7 @@ interface AskDataState {
   dataQueryResult: QueryResult | null;
   dataQuerySelectedTable: DataQueryTable | null;
   setActiveModule: (module: ModuleKey) => void;
+  setActiveSettingsSection: (section: SettingsSectionKey) => void;
   setDataQuerySql: (sql: string) => void;
   setDataQueryResult: (result: QueryResult | null) => void;
   setDataQuerySelectedTable: (table: DataQueryTable | null) => void;
@@ -106,6 +111,7 @@ async function parseSseStream(
 
 export const useAskDataStore = create<AskDataState>((set, get) => ({
   activeModule: 'tasks',
+  activeSettingsSection: 'llm',
   activeSessionId: null,
   sessions: [],
   messages: [],
@@ -122,6 +128,7 @@ export const useAskDataStore = create<AskDataState>((set, get) => ({
   dataQueryResult: null,
   dataQuerySelectedTable: null,
   setActiveModule: (activeModule) => set({ activeModule }),
+  setActiveSettingsSection: (activeSettingsSection) => set({ activeSettingsSection }),
   setDataQuerySql: (dataQuerySql) => set({ dataQuerySql }),
   setDataQueryResult: (dataQueryResult) => set({ dataQueryResult }),
   setDataQuerySelectedTable: (dataQuerySelectedTable) => set({ dataQuerySelectedTable }),

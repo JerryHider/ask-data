@@ -5,6 +5,7 @@ import LlmConfigForm from './LlmConfigForm';
 import SqlExampleEditor from './SqlExampleEditor';
 import RagSpaceManager from './RagSpaceManager';
 import SkillListPanel from '../Skills/SkillListPanel';
+import type { SettingsSectionKey } from '../../lib/settings';
 
 interface ContextSettings {
   history_window: number;
@@ -22,14 +23,14 @@ interface SandboxSettings {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <details className='rounded border border-slate-200 bg-white p-3'>
+    <details open className='rounded border border-slate-200 bg-white p-3'>
       <summary className='cursor-pointer text-sm font-semibold'>{title}</summary>
       <div className='mt-3'>{children}</div>
     </details>
   );
 }
 
-export default function SettingsPanel() {
+export default function SettingsPanel({ section }: { section: SettingsSectionKey }) {
   const [context, setContext] = useState<ContextSettings | null>(null);
   const [sandbox, setSandbox] = useState<SandboxSettings | null>(null);
   const [message, setMessage] = useState('');
@@ -58,13 +59,13 @@ export default function SettingsPanel() {
 
   return (
     <section className='space-y-2'>
-      <Section title='LLM 模型配置'>
+      {section === 'llm' ? <Section title='LLM 模型配置'>
         <LlmConfigForm />
-      </Section>
-      <Section title='NL→SQL 转换样例'>
+      </Section> : null}
+      {section === 'sql-examples' ? <Section title='NL→SQL 转换样例'>
         <SqlExampleEditor />
-      </Section>
-      <Section title='上下文设置'>
+      </Section> : null}
+      {section === 'context' ? <Section title='上下文设置'>
         {context ? (
           <div className='grid gap-2 text-xs'>
             <label className='grid gap-1'>
@@ -110,14 +111,14 @@ export default function SettingsPanel() {
             </button>
           </div>
         ) : null}
-      </Section>
-      <Section title='RAG 知识库'>
+      </Section> : null}
+      {section === 'rag' ? <Section title='RAG 知识库'>
         <RagSpaceManager />
-      </Section>
-      <Section title='自定义 Skill'>
+      </Section> : null}
+      {section === 'skills' ? <Section title='自定义 Skill'>
         <SkillListPanel />
-      </Section>
-      <Section title='沙箱设置'>
+      </Section> : null}
+      {section === 'sandbox' ? <Section title='沙箱设置'>
         {sandbox ? (
           <div className='grid gap-2 text-xs'>
             <label className='grid gap-1'>
@@ -167,7 +168,7 @@ export default function SettingsPanel() {
             </button>
           </div>
         ) : null}
-      </Section>
+      </Section> : null}
       {message ? <p className='text-xs text-slate-600'>{message}</p> : null}
     </section>
   );

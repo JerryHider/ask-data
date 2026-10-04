@@ -1,8 +1,8 @@
 'use client';
 
 import TaskList from './TaskList';
-import SettingsPanel from '../AskSettings/SettingsPanel';
 import { useAskDataStore } from '../../lib/store';
+import { settingsSections } from '../../lib/settings';
 
 const help: Record<string, string> = {
   tasks: '管理问数任务并保留会话历史。',
@@ -12,7 +12,9 @@ const help: Record<string, string> = {
 
 export default function ModulePanel() {
   const activeModule = useAskDataStore((state) => state.activeModule);
-  const width = activeModule === 'settings' ? 420 : 280;
+  const activeSettingsSection = useAskDataStore((state) => state.activeSettingsSection);
+  const setActiveSettingsSection = useAskDataStore((state) => state.setActiveSettingsSection);
+  const width = activeModule === 'settings' ? 260 : 280;
 
   return (
     <aside
@@ -26,7 +28,24 @@ export default function ModulePanel() {
       </header>
       <div className="min-h-0 flex-1 overflow-auto p-3">
         {activeModule === 'tasks' ? <TaskList /> : null}
-        {activeModule === 'settings' ? <SettingsPanel /> : null}
+        {activeModule === 'settings' ? (
+          <nav className="grid gap-1">
+            {settingsSections.map((section) => (
+              <button
+                key={section.key}
+                type="button"
+                onClick={() => setActiveSettingsSection(section.key)}
+                className={`rounded px-3 py-2 text-left text-sm ${
+                  activeSettingsSection === section.key
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                {section.label}
+              </button>
+            ))}
+          </nav>
+        ) : null}
       </div>
       <footer className="border-t border-slate-200 px-4 py-3 text-xs text-slate-500">
         {help[activeModule]}

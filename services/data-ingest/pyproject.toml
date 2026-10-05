@@ -1,0 +1,13 @@
+[project]
+name = 'data-ingest'
+version = '0.1.0'
+description = 'AskData file import service'
+requires-python = '>=3.11'
+dependencies = [
+    'fastapi>=0.141.1',
+    'uvicorn>=0.52.4',
+    'pandas>=2.3.3',
+    'openpyxl>=3.1.5',
+    'pymysql>=1.1.2',
+    'python-multipart>=0.0.20',
+]

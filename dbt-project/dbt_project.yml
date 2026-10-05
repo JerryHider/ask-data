@@ -1,0 +1,13 @@
+name: askdata
+version: 1.0.0
+config-version: 2
+
+profile: askdata
+
+model-paths: [models, user_semantic_models]
+target-path: target
+
+
+models:
+  askdata:
+    +materialized: table

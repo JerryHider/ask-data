@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: metricflow_time_spine
+    description: Daily time spine.
+    semantic_model:
+      enabled: true
+    primary_entity: metric_time_spine_id
+    agg_time_dimension: metric_time_spine
+    columns:
+      - name: date_day
+        data_type: date
+        description: Daily time spine date.
+        granularity: day
+        dimension:
+          name: metric_time_spine
+          type: time

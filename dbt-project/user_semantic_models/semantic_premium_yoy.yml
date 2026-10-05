@@ -1,0 +1,18 @@
+version: 2
+
+metrics:
+  - name: premium_yoy
+    label: 保费同比增长率
+    description: 本期保费相对去年同期保费的增长率。
+    type: derived
+    type_params:
+      expr: (current - previous) / previous
+      metrics:
+        - name: premium
+          alias: current
+        - name: premium
+          offset_window: 1 year
+          alias: previous
+    config:
+      meta:
+        synonyms: [保费同比, 保费增长率]

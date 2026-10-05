@@ -1,0 +1,170 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-askdata}
+      MYSQL_USER: ${MYSQL_USER:-askdata}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [CMD, mysqladmin, ping, -h, localhost]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  chroma:
+    image: chromadb/chroma:latest
+    volumes:
+      - ./data/chroma:/chroma/chroma
+    healthcheck:
+      test: [CMD-SHELL, bash -c '</dev/tcp/localhost/8000']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  artifact-parser:
+    build:
+      context: .
+      dockerfile: services/artifact-parser/Dockerfile
+    environment:
+      CHROMA_URL: http://chroma:8000
+      BGE_MODEL_PATH: /app/models/bge-m3
+    volumes:
+      - ./dbt-project:/app/dbt-project
+      - ./data/chroma:/app/data/chroma
+      - ./data/models/bge-m3:/app/models/bge-m3
+    healthcheck:
+      test: [CMD, python, -c, import urllib.request; urllib.request.urlopen('http://localhost:8001/health')]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  metricflow-bridge:
+    build:
+      context: .
+      dockerfile: services/metricflow-bridge/Dockerfile
+    volumes:
+      - ./dbt-project:/app/dbt-project
+      - ./data:/app/data
+    healthcheck:
+      test: [CMD, python, -c, import urllib.request; urllib.request.urlopen('http://localhost:8002/health')]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  registry:
+    build:
+      context: .
+      dockerfile: services/registry/Dockerfile
+    environment:
+      DATASOURCE_MYSQL_URL: mysql://${MYSQL_USER:-askdata}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-askdata}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      METRICFLOW_BRIDGE_URL: http://metricflow-bridge:8002
+      ARTIFACT_PARSER_URL: http://artifact-parser:8001
+      SQL_SANDBOX_URL: http://sandbox:8003
+    volumes:
+      - ./data:/app/data
+      - ./dbt-project/user_semantic_models:/app/dbt-project/user_semantic_models
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, import urllib.request; urllib.request.urlopen('http://localhost:8004/health')]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  data-ingest:
+    build:
+      context: .
+      dockerfile: services/data-ingest/Dockerfile
+    environment:
+      DATASOURCE_MYSQL_URL: mysql://${MYSQL_USER:-askdata}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-askdata}
+      INGEST_MAX_FILE_MB: ${INGEST_MAX_FILE_MB:-50}
+      SQL_SANDBOX_URL: http://sandbox:8003
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      sandbox:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, import urllib.request; urllib.request.urlopen('http://localhost:8005/health')]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  sandbox:
+    build:
+      context: .
+      dockerfile: services/sandbox/Dockerfile
+    environment:
+      DATASOURCE_MYSQL_URL: mysql://${MYSQL_USER:-askdata}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-askdata}
+      REGISTRY_URL: http://registry:8004
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      registry:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, import urllib.request; urllib.request.urlopen('http://localhost:8003/health')]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  agent-server:
+    build:
+      context: .
+      dockerfile: agent-server/Dockerfile
+    environment:
+      AGENT_SERVER_HOST: 0.0.0.0
+      ARTIFACT_PARSER_URL: http://artifact-parser:8001
+      METRICFLOW_BRIDGE_URL: http://metricflow-bridge:8002
+      SQL_SANDBOX_URL: http://sandbox:8003
+      REGISTRY_URL: http://registry:8004
+      DATA_INGEST_URL: http://data-ingest:8005
+      AGENT_FLOW_MODE: ${AGENT_FLOW_MODE:-full}
+    volumes:
+      - ./data/sessions:/app/data/sessions
+      - ./data/rollouts:/app/data/rollouts
+    depends_on:
+      artifact-parser:
+        condition: service_healthy
+      metricflow-bridge:
+        condition: service_healthy
+      sandbox:
+        condition: service_healthy
+      registry:
+        condition: service_healthy
+      data-ingest:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    environment:
+      AGENT_SERVER_URL: http://agent-server:3000
+      PORT: 3001
+      HOSTNAME: 0.0.0.0
+    ports:
+      - 127.0.0.1:3001:3001
+    depends_on:
+      agent-server:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, fetch('http://127.0.0.1:3001').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))]
+      interval: 10s
+      timeout: 5s
+      retries: 10

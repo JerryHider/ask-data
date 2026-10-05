@@ -1,0 +1,8 @@
+askdata:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: ../../data/askdata.duckdb
+      schema: askdata
+      threads: 1

@@ -1,0 +1,17 @@
+version: 2
+
+metrics:
+  - name: gd_premium_share
+    label: 广东保费占比
+    description: 投保口径下广东保费占总保费比例。
+    type: ratio
+    type_params:
+      numerator:
+        name: premium
+        filter: "{{ Dimension('insurance_order__insure_unit_province') }} = '广东省'"
+        alias: premium_gd
+      denominator: premium
+    filter: "{{ Dimension('insurance_order__order_type') }} = '投保'"
+    config:
+      meta:
+        synonyms: [广东保费贡献度, 广东保费比例]

@@ -1,0 +1,12 @@
+version: 2
+
+metrics:
+  - name: insured_persons
+    label: 投保人数
+    description: 投保人次合计。
+    type: simple
+    type_params:
+      measure: insured_person_cnt
+    config:
+      meta:
+        synonyms: [投保人次, 投保客户数]

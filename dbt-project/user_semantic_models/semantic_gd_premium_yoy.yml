@@ -1,0 +1,20 @@
+version: 2
+
+metrics:
+  - name: gd_premium_yoy
+    label: 广东保费同比增长率
+    description: 广东本期保费相对去年同期保费的增长率。
+    type: derived
+    type_params:
+      expr: (current - previous) / previous
+      metrics:
+        - name: premium
+          alias: current
+          filter: "{{ Dimension('insurance_order__insure_unit_province') }} = '广东省'"
+        - name: premium
+          alias: previous
+          offset_window: 1 year
+          filter: "{{ Dimension('insurance_order__insure_unit_province') }} = '广东省'"
+    config:
+      meta:
+        synonyms: [广东保费同比, 广东保费增速]

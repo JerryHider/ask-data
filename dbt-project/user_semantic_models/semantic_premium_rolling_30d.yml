@@ -1,0 +1,14 @@
+version: 2
+
+metrics:
+  - name: premium_rolling_30d
+    label: 近 30 天滚动保费
+    description: 含当日在内的过去 30 天滚动保费。
+    type: cumulative
+    type_params:
+      measure: total_premium
+      cumulative_type_params:
+        window: 30 days
+    config:
+      meta:
+        synonyms: [近30天保费, 滚动保费]

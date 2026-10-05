@@ -1,0 +1,13 @@
+version: 2
+
+metrics:
+  - name: premium_paid_time
+    label: 保费（按支付时间）
+    description: 按支付时间统计的保费。
+    type: simple
+    type_params:
+      measure: paid_axis_premium
+    config:
+      meta:
+        owner: data@company.com
+        synonyms: [回款保费, 支付口径保费]

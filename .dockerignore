@@ -1,0 +1,15 @@
+.git
+.next
+agent-server/data
+coverage
+data
+dbt-project/logs
+dbt-project/target
+**/node_modules
+**/.venv
+services/**/__pycache__
+web/.next
+web/node_modules
+web/tsconfig.tsbuildinfo
+*.duckdb
+*.pyc

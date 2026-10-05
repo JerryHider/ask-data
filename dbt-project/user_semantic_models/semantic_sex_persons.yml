@@ -1,0 +1,8 @@
+version: 2
+metrics:
+- name: sex_persons
+  label: 分性别投保人数
+  description: 分性别统计的投保人数
+  type: simple
+  type_params:
+    measure: emp_id_no_crypt

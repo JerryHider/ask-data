@@ -1,0 +1,22 @@
+version: 2
+
+metrics:
+  - name: policy_cancellation_rate
+    label: 保单退保转化率
+    description: 投保订单在 365 天内出现退保订单的转化率。
+    type: conversion
+    type_params:
+      conversion_type_params:
+        entity: policy
+        calculation: conversion_rate
+        base_measure:
+          name: new_order_cnt
+        conversion_measure:
+          name: cancellation_order_cnt
+        window: 365 days
+        constant_properties:
+          - base_property: product
+            conversion_property: product
+    config:
+      meta:
+        synonyms: [退保率, 保单退保率]

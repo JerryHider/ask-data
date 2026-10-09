@@ -19,7 +19,7 @@ export function shouldBlockExecuteSql(context: ToolCallContext): InterceptorResu
   if (!context.state?.searchedSchema) {
     return {
       block: true,
-      reason: "????? search_schema ????",
+      reason: "必须先调用 search_schema 确认字段",
     };
   }
   return {};

@@ -12,7 +12,7 @@ const executeSqlSchema = Type.Object({
 export const executeSqlTool: AgentTool<typeof executeSqlSchema> = {
   name: 'execute_sql',
   label: `Execute SQL`,
-  description: `reason ????? SQL ????????????`,
+  description: `reason 填写执行此 SQL 的业务原因，用于合规审计`,
   parameters: executeSqlSchema,
   execute: async (_toolCallId, params) => {
     const response = await fetch(`${sandboxUrl}/execute`, {

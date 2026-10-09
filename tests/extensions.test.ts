@@ -10,7 +10,7 @@ describe('dual router interceptor', () => {
     });
     expect(result).toEqual({
       block: true,
-      reason: '????? search_schema ????',
+      reason: '必须先调用 search_schema 确认字段',
     });
   });
 
@@ -44,6 +44,6 @@ describe('table renderer', () => {
       rows,
       rowCount: 21,
     });
-    expect(markdown).toContain('? 21 ?');
+    expect(markdown).toContain('共 21 行');
   });
 });

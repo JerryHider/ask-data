@@ -138,7 +138,7 @@ def run_command(arguments: list[str]) -> str:
         message = (result.stderr or result.stdout or "MetricFlow failed").strip()
         raise MetricFlowError(
             f"MetricFlow failed: {message[:1000]}",
-            "??????????????????????????? list_metrics/get_dimensions ???",
+            "请检查请求中的指标名称或维度名称是否拼写正确，可先调用 list_metrics/get_dimensions 确认。",
         ) from RuntimeError(message)
     return result.stdout.strip()
 
@@ -146,8 +146,8 @@ def run_command(arguments: list[str]) -> str:
 def load_semantic_manifest() -> dict[str, Any]:
     if not SEMANTIC_MANIFEST_PATH.exists():
         raise MetricFlowError(
-            "???????",
-            "???? POST /reparse ?? dbt semantic_manifest.json?",
+            "语义清单不存在",
+            "请先调用 POST /reparse 生成 dbt semantic_manifest.json。",
         )
     with SEMANTIC_MANIFEST_PATH.open(encoding="utf-8") as handle:
         return json.load(handle)
@@ -345,8 +345,8 @@ def get_dimensions(request: MetricRequest) -> list[str]:
     dimensions = dimensions_for_metric(semantic_manifest, request.metric)
     if not dimensions:
         raise MetricFlowError(
-            f"?? {request.metric} ??????????",
-            "???? POST /list_metrics ????????",
+            f"指标 {request.metric} 没有可用的维度信息。",
+            "请先调用 POST /list_metrics 查看可用指标列表",
         )
     return dimensions
 
@@ -393,8 +393,8 @@ def explain_metric(request: MetricRequest) -> dict[str, Any]:
     )
     if metric is None:
         raise MetricFlowError(
-            f"?? {request.metric} ???",
-            "???? POST /list_metrics ????????",
+            f"指标 {request.metric} 不存在",
+            "请先调用 POST /list_metrics 查看可用指标列表",
         )
     type_params = metric.get("type_params") or {}
     numerator = (type_params.get("numerator") or {}).get("name", "")
@@ -432,7 +432,7 @@ def reparse() -> dict[str, Any]:
             status_code=422,
             content={
                 "error": True,
-                "message": "dbt parse ??",
+                "message": "dbt parse 失败",
                 "hint": (result.stderr or result.stdout or "").strip()[-2000:],
             },
         )

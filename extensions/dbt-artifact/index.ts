@@ -12,7 +12,7 @@ const searchSchema = Type.Object({
 export const searchSchemaTool: AgentTool<typeof searchSchema> = {
   name: 'search_schema',
   label: `Search schema`,
-  description: `???????????? dbt ????????SQL ?????????? SQL ???????????????????`,
+  description: `根据自然语言问题检索相关 dbt 模型、指标定义、SQL 样例与业务知识。生成 SQL 前必须调用此工具确认字段名与指标口径。`,
   parameters: searchSchema,
   execute: async (_toolCallId, params) => {
     const response = await fetch(parserUrl, {
@@ -35,7 +35,7 @@ export const searchSchemaTool: AgentTool<typeof searchSchema> = {
         {
           type: 'text' as const,
           text: truncated
-            ? `${serialized}\n[???????????????????????]`
+            ? `${serialized}\n[提示：检索结果过长，已自动截断，请缩小查询范围]`
             : serialized,
         },
       ],

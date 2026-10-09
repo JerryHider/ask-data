@@ -14,7 +14,7 @@ export interface ClarifyState {
 export const askClarificationTool: AgentTool<typeof askClarificationSchema> = {
   name: 'ask_clarification',
   label: `Ask clarification`,
-  description: `????????/????/????????????????????`,
+  description: `问题涉及时间范围/指标口径/维度切片模糊时必须调用此工具向用户确认。`,
   parameters: askClarificationSchema,
   execute: async (_toolCallId, params) => {
     const question = params.question;

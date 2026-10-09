@@ -30,7 +30,7 @@ export function renderMarkdownTable(data: {
   );
   const suffix =
     data.rowCount > 20
-      ? `... ? ${data.rowCount} ????????????`
+      ? `... 共 ${data.rowCount} 行，完整表格见右侧结果区`
       : '';
   return [header, separator, ...body, suffix].filter(Boolean).join('\n');
 }
@@ -38,7 +38,7 @@ export function renderMarkdownTable(data: {
 export const renderTableTool: AgentTool<typeof renderTableSchema> = {
   name: 'render_table',
   label: `Render table`,
-  description: `?????????????????????????? Markdown ???`,
+  description: `所有查询结果必须调用此工具呈现。禁止直接在消息中手写 Markdown 表格。`,
   parameters: renderTableSchema,
   execute: async (_toolCallId, params) => {
     const markdown = renderMarkdownTable(params.data);

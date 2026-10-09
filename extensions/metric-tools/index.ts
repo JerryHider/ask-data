@@ -48,7 +48,7 @@ async function postJson<TRequest, TResult>(
 export const listMetricsTool: AgentTool<typeof listMetricsSchema> = {
   name: 'list_metrics',
   label: `List metrics`,
-  description: `???? dbt ????????????????????????`,
+  description: `列出所有 dbt 标准指标。判断问题是否命中标准指标前必须先调用。`,
   parameters: listMetricsSchema,
   execute: async () => toToolResult(
     await postJson<Record<string, never>, unknown[]>(`${bridgeUrl}/list_metrics`, {})
@@ -68,7 +68,7 @@ export const getDimensionsTool: AgentTool<typeof getDimensionsSchema> = {
 export const queryMetricTool: AgentTool<typeof queryMetricSchema> = {
   name: 'query_metric',
   label: `Query metric`,
-  description: `?? dbt ???????? dbt ???????????????????????????? SQL?`,
+  description: `查询 dbt 标准指标，口径由 dbt 保证一致。问题命中标准指标时必须使用此工具，禁止自行编写 SQL。`,
   parameters: queryMetricSchema,
   execute: async (_toolCallId, params) => {
     const compiled = await postJson<
@@ -100,7 +100,7 @@ export const queryMetricTool: AgentTool<typeof queryMetricSchema> = {
 export const explainMetricTool: AgentTool<typeof explainMetricSchema> = {
   name: 'explain_metric',
   label: `Explain metric`,
-  description: `?????????????????????`,
+  description: `解释指标计算逻辑。用户询问指标定义时使用。`,
   parameters: explainMetricSchema,
   execute: async (_toolCallId, params) => toToolResult(
     await postJson<{ metric: string }, unknown>(`${bridgeUrl}/explain_metric`, params)

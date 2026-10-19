@@ -1024,8 +1024,10 @@ app.post('/api/message', async (request, response) => {
 
   response.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
-    'cache-control': 'no-cache',
+    'cache-control': 'no-cache, no-transform',
     connection: 'keep-alive',
+    // 禁止中间层（nginx/代理）缓冲 SSE
+    'x-accel-buffering': 'no',
   });
   response.flushHeaders?.();
 
